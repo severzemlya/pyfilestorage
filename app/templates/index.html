@@ -151,11 +151,11 @@
                         <td class="icon-col">
                             {% if get_file_type(file.mime_type) == 'image' %}
                             <div class="file-thumbnail" data-file-id="{{ file.id }}">
-                                <img src="{{ url_for('get_thumbnail', file_id=file.id) }}" alt="{{ file.original_name }}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\'file-icon-small image-icon\'><i class=\'fas fa-image\'></i></div>'">
+                                <img src="{{ url_for('get_thumbnail', file_id=file.id) }}" alt="" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="file-icon-small image-icon" style="display:none"><i class="fas fa-image"></i></div>
                             </div>
                             {% elif get_file_type(file.mime_type) == 'video' %}
                             <div class="file-thumbnail video-thumbnail" data-file-id="{{ file.id }}">
-                                <img src="{{ url_for('get_thumbnail', file_id=file.id) }}" alt="{{ file.original_name }}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\'file-icon-small video-icon\'><i class=\'fas fa-video\'></i></div>'">
+                                <img src="{{ url_for('get_thumbnail', file_id=file.id) }}" alt="" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="file-icon-small video-icon" style="display:none"><i class="fas fa-video"></i></div>
                                 <div class="video-play-icon"><i class="fas fa-play"></i></div>
                             </div>
                             {% else %}
@@ -489,7 +489,8 @@ function uploadFilesWithProgress(files, relativePaths) {
             try {
                 const response = JSON.parse(xhr.responseText);
                 if (response.success) {
-                    showToast('success', window.i18n ? window.i18n.t('upload.success') : `${response.count} file(s) uploaded successfully`);
+                    const count = response.count || 0;
+                    showToast('success', window.i18n ? window.i18n.t('upload.success') : `${count} file(s) uploaded successfully`);
                     setTimeout(() => window.location.reload(), 1000);
                 } else {
                     showToast('error', response.error || 'Upload failed');

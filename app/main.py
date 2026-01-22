@@ -925,15 +925,25 @@ def upload_file_ajax():
         current_parent = folder_id
 
         for i, part in enumerate(parts):
+            # Sanitize folder name to prevent traversal
+            part = re.sub(r'[<>:"/\\|?*\.]', '', part)[:255]
+            if not part:
+                continue
+                
             partial_path = '/'.join(parts[:i + 1])
             if partial_path in folder_cache:
                 current_parent = folder_cache[partial_path]
                 continue
 
-            # Check if folder exists
-            existing = db.execute('''
-                SELECT id FROM folders WHERE name = ? AND owner_id = ? AND parent_id IS ?
-            ''', (part, user_id, current_parent)).fetchone()
+            # Check if folder exists - use proper NULL handling
+            if current_parent is None:
+                existing = db.execute('''
+                    SELECT id FROM folders WHERE name = ? AND owner_id = ? AND parent_id IS NULL
+                ''', (part, user_id)).fetchone()
+            else:
+                existing = db.execute('''
+                    SELECT id FROM folders WHERE name = ? AND owner_id = ? AND parent_id = ?
+                ''', (part, user_id, current_parent)).fetchone()
 
             if existing:
                 current_parent = existing['id']
@@ -951,6 +961,12 @@ def upload_file_ajax():
     for i, file in enumerate(files):
         if file.filename:
             relative_path = relative_paths[i] if i < len(relative_paths) else file.filename
+            
+            # Validate relative path - prevent directory traversal
+            if '..' in relative_path or relative_path.startswith('/'):
+                errors.append(f'Invalid path: {relative_path}')
+                continue
+            
             original_name = secure_filename(Path(relative_path).name)
 
             # Determine target folder
@@ -1038,13 +1054,16 @@ def get_thumbnail(file_id):
         abort(404)
 
     # For images, return the image directly (browser will handle resizing)
-    # For videos, return a placeholder or first frame if possible
     if file_type == 'image':
         return send_file(io.BytesIO(data), mimetype=file['mime_type'])
     else:
-        # For video, return a generic video icon placeholder
-        # In production, you might want to generate actual video thumbnails
-        return send_file(io.BytesIO(data), mimetype=file['mime_type'])
+        # For video, return a small placeholder SVG instead of the full video
+        # This avoids downloading large video files just for thumbnails
+        video_placeholder = b'''<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+            <rect width="100" height="100" fill="#374151"/>
+            <polygon points="40,30 70,50 40,70" fill="#9CA3AF"/>
+        </svg>'''
+        return send_file(io.BytesIO(video_placeholder), mimetype='image/svg+xml')
 
 
 @app.route('/folder/<int:folder_id>/download')
