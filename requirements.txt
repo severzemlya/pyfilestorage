@@ -4,4 +4,3 @@ flask-wtf>=1.2.0
 werkzeug>=2.3.0
 python-dotenv>=1.0.0
 email-validator>=2.0.0
-pillow>=10.0.0

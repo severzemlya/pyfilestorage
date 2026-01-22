@@ -1066,7 +1066,15 @@ def access_share_link(token):
         return redirect(url_for('login'))
     
     # Check expiration
-    if share['expires_at'] and datetime.fromisoformat(share['expires_at']) < datetime.now():
+    if share['expires_at']:
+        try:
+            expires_at = datetime.strptime(share['expires_at'], '%Y-%m-%d %H:%M:%S.%f')
+        except ValueError:
+            try:
+                expires_at = datetime.strptime(share['expires_at'], '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                expires_at = datetime.fromisoformat(share['expires_at'])
+        if expires_at < datetime.now():
         flash('Share link has expired.', 'error')
         return redirect(url_for('login'))
     
@@ -1554,9 +1562,14 @@ def main():
         init_db()
         create_admin_user()
     
+    # Debug mode should only be enabled in development
+    debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
+    
     print("Starting PyFileStorage server...")
     print("Default admin: admin@local.host / admin123")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    if debug_mode:
+        print("WARNING: Debug mode is enabled. Do not use in production!")
+    app.run(host='0.0.0.0', port=5000, debug=debug_mode)
 
 
 if __name__ == '__main__':

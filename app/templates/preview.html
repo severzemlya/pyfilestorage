@@ -23,7 +23,7 @@
         
         {% elif file_type == 'video' %}
         <div class="video-preview">
-            <video controls autoplay>
+            <video controls>
                 <source src="{{ url_for('view_file', file_id=file.id) }}" type="{{ file.mime_type }}">
                 Your browser does not support the video tag.
             </video>
@@ -35,7 +35,7 @@
                 <i class="fas fa-music"></i>
             </div>
             <h3>{{ file.original_name }}</h3>
-            <audio controls autoplay>
+            <audio controls>
                 <source src="{{ url_for('view_file', file_id=file.id) }}" type="{{ file.mime_type }}">
                 Your browser does not support the audio tag.
             </audio>

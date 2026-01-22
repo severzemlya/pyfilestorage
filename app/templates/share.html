@@ -190,10 +190,26 @@
 <script>
 function copyToClipboard(inputId) {
     const input = document.getElementById(inputId);
+    const text = input.value;
+    
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            showCopyFeedback(input);
+        }).catch(() => {
+            fallbackCopy(input);
+        });
+    } else {
+        fallbackCopy(input);
+    }
+}
+
+function fallbackCopy(input) {
     input.select();
     document.execCommand('copy');
-    
-    // Show feedback
+    showCopyFeedback(input);
+}
+
+function showCopyFeedback(input) {
     const btn = input.nextElementSibling;
     const originalHtml = btn.innerHTML;
     btn.innerHTML = '<i class="fas fa-check"></i>';

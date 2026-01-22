@@ -54,6 +54,7 @@ python app/main.py
 | `SECRET_KEY` | Flask secret key for sessions | Random generated |
 | `ADMIN_EMAIL` | Default admin email | admin@local.host |
 | `ADMIN_PASSWORD` | Default admin password | admin123 |
+| `FLASK_DEBUG` | Enable debug mode (set to '1' for development) | 0 |
 
 ## API Usage
 
