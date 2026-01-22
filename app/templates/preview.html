@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Preview - {{ file.original_name }} - {{ app_name }}{% endblock %}
+{% block og_title %}{{ file.original_name }} - {{ app_name }}{% endblock %}
+{% block og_description %}Preview {{ file.original_name }} on {{ app_name }}{% endblock %}
+{% block twitter_title %}{{ file.original_name }} - {{ app_name }}{% endblock %}
+{% block twitter_description %}Preview {{ file.original_name }} on {{ app_name }}{% endblock %}
 
 {% block content %}
 <div class="preview-container">

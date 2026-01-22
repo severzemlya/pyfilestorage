@@ -1,4 +1,10 @@
 {
+    "app_name": "PyFileStorage",
+    "site_url": "http://localhost:5000",
+    "site_description": "A lightweight, secure web file storage server",
+    "og_image": "/static/og-image.png",
+    "upload_folder": "uploads",
+    "database_path": "storage.db",
     "max_file_size": 104857600,
     "default_quota": 1073741824,
     "system_quota": 10737418240,

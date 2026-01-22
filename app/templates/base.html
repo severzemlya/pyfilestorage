@@ -3,7 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{% block meta_description %}{{ site_description }}{% endblock %}">
     <title>{% block title %}{{ app_name }}{% endblock %}</title>
+    <!-- Open Graph Protocol meta tags -->
+    <meta property="og:title" content="{% block og_title %}{{ app_name }}{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}{{ site_description }}{% endblock %}">
+    <meta property="og:type" content="{% block og_type %}website{% endblock %}">
+    <meta property="og:url" content="{% block og_url %}{{ site_url }}{{ request.path }}{% endblock %}">
+    <meta property="og:image" content="{% block og_image %}{{ site_url }}{{ og_image }}{% endblock %}">
+    <meta property="og:site_name" content="{{ app_name }}">
+    <!-- Twitter Card meta tags -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{% block twitter_title %}{{ app_name }}{% endblock %}">
+    <meta name="twitter:description" content="{% block twitter_description %}{{ site_description }}{% endblock %}">
+    <meta name="twitter:image" content="{% block twitter_image %}{{ site_url }}{{ og_image }}{% endblock %}">
     <!-- Apply theme immediately to prevent flash -->
     <script>
         (function() {
