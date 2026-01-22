@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="light" data-lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -18,19 +18,28 @@
         </div>
         <div class="nav-menu">
             <a href="{{ url_for('index') }}" class="nav-link">
-                <i class="fas fa-folder"></i> Files
+                <i class="fas fa-folder"></i> <span data-i18n="nav.files">Files</span>
             </a>
             {% if session.role == 'admin' %}
             <a href="{{ url_for('admin_dashboard') }}" class="nav-link">
-                <i class="fas fa-cog"></i> Admin
+                <i class="fas fa-cog"></i> <span data-i18n="nav.admin">Admin</span>
             </a>
             {% endif %}
             <a href="{{ url_for('settings_page') }}" class="nav-link">
                 <i class="fas fa-user"></i> {{ session.name }}
             </a>
             <a href="{{ url_for('logout') }}" class="nav-link">
-                <i class="fas fa-sign-out-alt"></i> Logout
+                <i class="fas fa-sign-out-alt"></i> <span data-i18n="nav.logout">Logout</span>
             </a>
+            <div class="lang-selector">
+                <button id="lang-toggle" class="lang-btn" title="Language">
+                    <i class="fas fa-globe"></i>
+                </button>
+                <div class="lang-dropdown" id="lang-dropdown">
+                    <button class="lang-option" data-lang="en">English</button>
+                    <button class="lang-option" data-lang="ja">日本語</button>
+                </div>
+            </div>
             <button id="theme-toggle" class="theme-btn" title="Toggle theme">
                 <i class="fas fa-moon"></i>
             </button>

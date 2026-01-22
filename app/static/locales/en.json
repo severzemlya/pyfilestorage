@@ -1,0 +1,68 @@
+{
+  "app_name": "PyFileStorage",
+  "nav": {
+    "files": "Files",
+    "admin": "Admin",
+    "logout": "Logout"
+  },
+  "file_explorer": {
+    "home": "Home",
+    "storage": "Storage",
+    "new_folder": "New Folder",
+    "upload_files": "Upload Files",
+    "drop_files_here": "Drop files here to upload",
+    "folders": "Folders",
+    "files": "Files",
+    "name": "Name",
+    "size": "Size",
+    "modified": "Modified",
+    "actions": "Actions",
+    "select_all": "Select All",
+    "selected_items": "selected",
+    "delete_selected": "Delete Selected",
+    "download_selected": "Download Selected",
+    "search_files": "Search files...",
+    "search_results_for": "Search Results for",
+    "no_results_found": "No results found",
+    "try_different_search": "Try a different search term",
+    "empty_folder": "This folder is empty",
+    "upload_or_create": "Upload files or create folders to get started",
+    "shared_with_me": "Shared with me",
+    "shared_by": "Shared by"
+  },
+  "actions": {
+    "preview": "Preview",
+    "download": "Download",
+    "share": "Share",
+    "rename": "Rename",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "create": "Create"
+  },
+  "modals": {
+    "create_folder": "Create New Folder",
+    "folder_name": "Folder Name",
+    "enter_folder_name": "Enter folder name",
+    "rename": "Rename",
+    "new_name": "New Name"
+  },
+  "sorting": {
+    "sort_by": "Sort by",
+    "name_asc": "Name (A-Z)",
+    "name_desc": "Name (Z-A)",
+    "size_asc": "Size (Smallest)",
+    "size_desc": "Size (Largest)",
+    "date_asc": "Date (Oldest)",
+    "date_desc": "Date (Newest)"
+  },
+  "confirm": {
+    "delete_folder": "Delete this folder and all its contents?",
+    "delete_file": "Delete this file?",
+    "delete_selected": "Delete selected items?"
+  },
+  "language": {
+    "select": "Language",
+    "english": "English",
+    "japanese": "日本語"
+  }
+}
