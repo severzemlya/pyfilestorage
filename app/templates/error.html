@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Error - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="error-container">
+    <div class="error-card">
+        <div class="error-icon">
+            <i class="fas fa-exclamation-triangle"></i>
+        </div>
+        <h1>Oops!</h1>
+        <p>{{ error }}</p>
+        <a href="{{ url_for('index') }}" class="btn btn-primary">
+            <i class="fas fa-home"></i> Go Home
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.error-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+}
+
+.error-card {
+    text-align: center;
+    padding: 60px 40px;
+    background: var(--card-bg);
+    border-radius: 16px;
+    box-shadow: var(--card-shadow);
+}
+
+.error-icon {
+    font-size: 80px;
+    color: var(--error-color);
+    margin-bottom: 20px;
+}
+
+.error-card h1 {
+    margin-bottom: 10px;
+}
+
+.error-card p {
+    color: var(--text-muted);
+    margin-bottom: 30px;
+}
+</style>
+{% endblock %}

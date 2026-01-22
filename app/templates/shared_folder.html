@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shared Folder - {{ share.folder_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <i class="fas fa-folder-open"></i> {{ share.folder_name }}
+        </div>
+        <div class="nav-menu">
+            <button id="theme-toggle" class="theme-btn" title="Toggle theme">
+                <i class="fas fa-moon"></i>
+            </button>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="shared-folder-container">
+            <div class="shared-header">
+                <h2><i class="fas fa-folder-open"></i> {{ share.folder_name }}</h2>
+                <p class="text-muted">Shared folder</p>
+            </div>
+
+            {% if folders %}
+            <div class="section-header">
+                <h3><i class="fas fa-folder"></i> Folders</h3>
+            </div>
+            <div class="file-grid">
+                {% for folder in folders %}
+                <div class="file-card folder-card">
+                    <div class="file-icon folder-icon">
+                        <i class="fas fa-folder"></i>
+                    </div>
+                    <div class="file-info">
+                        <span class="file-name">{{ folder.name }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if files %}
+            <div class="section-header">
+                <h3><i class="fas fa-file"></i> Files</h3>
+            </div>
+            <div class="file-grid">
+                {% for file in files %}
+                <div class="file-card">
+                    <div class="file-icon">
+                        <i class="fas fa-file"></i>
+                    </div>
+                    <div class="file-info">
+                        <span class="file-name" title="{{ file.original_name }}">{{ file.original_name }}</span>
+                        <span class="file-size">{{ format_size(file.size) }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if not files and not folders %}
+            <div class="empty-state">
+                <i class="fas fa-folder-open"></i>
+                <h3>This folder is empty</h3>
+            </div>
+            {% endif %}
+        </div>
+    </main>
+
+    <footer class="footer">
+        <p>Shared via {{ app_name }}</p>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

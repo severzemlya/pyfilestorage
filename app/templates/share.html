@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block title %}Share {% if file %}{{ file.original_name }}{% else %}{{ folder.name }}{% endif %} - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="share-container">
+    <div class="page-header">
+        <a href="{{ url_for('index', folder=file.folder_id if file else folder.parent_id) }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back
+        </a>
+        <h2>
+            <i class="fas fa-share-alt"></i> 
+            Share {% if item_type == 'file' %}File{% else %}Folder{% endif %}: 
+            {% if file %}{{ file.original_name }}{% else %}{{ folder.name }}{% endif %}
+        </h2>
+    </div>
+
+    <div class="share-sections">
+        <!-- Create share link -->
+        <div class="card">
+            <div class="card-header">
+                <h3><i class="fas fa-link"></i> Create Share Link</h3>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="share_type" value="link">
+                    
+                    <div class="form-group">
+                        <label for="expires_days">Expiration (days)</label>
+                        <select id="expires_days" name="expires_days">
+                            <option value="">Never</option>
+                            <option value="1">1 day</option>
+                            <option value="7">7 days</option>
+                            <option value="30">30 days</option>
+                            <option value="90">90 days</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password">Password (optional)</label>
+                        <input type="password" id="password" name="password" 
+                               placeholder="Leave empty for no password">
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Create Link
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Share with user -->
+        <div class="card">
+            <div class="card-header">
+                <h3><i class="fas fa-user-plus"></i> Share with User</h3>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="share_type" value="user">
+                    
+                    <div class="form-group">
+                        <label for="email">User Email</label>
+                        <input type="email" id="email" name="email" required 
+                               placeholder="Enter user's email address">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="permission">Permission</label>
+                        <select id="permission" name="permission">
+                            <option value="read">Read only</option>
+                            <option value="write">Can edit</option>
+                        </select>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-share"></i> Share
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Existing shares -->
+    {% if share_links %}
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-link"></i> Active Share Links</h3>
+        </div>
+        <div class="card-body">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Link</th>
+                        <th>Password</th>
+                        <th>Expires</th>
+                        <th>Downloads</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for link in share_links %}
+                    <tr>
+                        <td>
+                            <div class="share-link-cell">
+                                <input type="text" readonly value="{{ url_for('access_share_link', token=link.token, _external=True) }}" 
+                                       class="share-link-input" id="link-{{ link.id }}">
+                                <button class="btn btn-icon" onclick="copyToClipboard('link-{{ link.id }}')" title="Copy">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </td>
+                        <td>
+                            {% if link.password_hash %}
+                            <i class="fas fa-lock" title="Password protected"></i>
+                            {% else %}
+                            <i class="fas fa-lock-open" title="No password"></i>
+                            {% endif %}
+                        </td>
+                        <td>{{ link.expires_at if link.expires_at else 'Never' }}</td>
+                        <td>{{ link.download_count }}</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('delete_share_link', link_id=link.id) }}" style="display: inline;">
+                                <button type="submit" class="btn btn-icon danger" title="Delete" 
+                                        onclick="return confirm('Delete this share link?')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if user_shares %}
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-users"></i> Shared with Users</h3>
+        </div>
+        <div class="card-body">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Permission</th>
+                        <th>Shared On</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for share in user_shares %}
+                    <tr>
+                        <td>
+                            <div class="user-cell">
+                                <i class="fas fa-user"></i>
+                                <div>
+                                    <div>{{ share.name }}</div>
+                                    <small>{{ share.email }}</small>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="badge {{ 'badge-success' if share.permission == 'write' else 'badge-info' }}">
+                                {% if share.permission == 'write' %}
+                                <i class="fas fa-edit"></i> Can edit
+                                {% else %}
+                                <i class="fas fa-eye"></i> Read only
+                                {% endif %}
+                            </span>
+                        </td>
+                        <td>{{ share.created_at }}</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('delete_user_share', share_id=share.id) }}" style="display: inline;">
+                                <button type="submit" class="btn btn-icon danger" title="Remove access" 
+                                        onclick="return confirm('Remove access for this user?')">
+                                    <i class="fas fa-user-minus"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+function copyToClipboard(inputId) {
+    const input = document.getElementById(inputId);
+    input.select();
+    document.execCommand('copy');
+    
+    // Show feedback
+    const btn = input.nextElementSibling;
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-check"></i>';
+    setTimeout(() => {
+        btn.innerHTML = originalHtml;
+    }, 2000);
+}
+</script>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.share-container {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.page-header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.page-header h2 {
+    flex: 1;
+    margin: 0;
+}
+
+.share-sections {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.share-link-cell {
+    display: flex;
+    gap: 8px;
+    max-width: 300px;
+}
+
+.share-link-input {
+    flex: 1;
+    font-size: 12px;
+    padding: 4px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--input-bg);
+    color: var(--text-color);
+}
+
+.user-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.user-cell i {
+    font-size: 24px;
+    color: var(--text-muted);
+}
+
+.user-cell small {
+    color: var(--text-muted);
+}
+</style>
+{% endblock %}

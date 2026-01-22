@@ -1,3 +1,8 @@
+# PyFileStorage specific
+app/uploads/
+app/storage.db
+storage.db
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
