@@ -244,10 +244,10 @@ document.getElementById('create-link-form').addEventListener('submit', function(
                 window.showShareLinkModal(data.share_url);
             }
             
-            // Reload the page to show updated list after a short delay
-            setTimeout(() => {
-                window.location.reload();
-            }, 500);
+            // Don't auto-reload - let user close the modal manually
+            // The modal has a close button, after which user can see the updated list
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalBtnHtml;
         } else {
             // Error occurred
             alert(data.error || 'Failed to create share link');

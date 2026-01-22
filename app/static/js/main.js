@@ -393,6 +393,11 @@ function closeShareLinkModal() {
     const modal = document.getElementById('share-link-modal');
     if (modal) {
         modal.classList.remove('active');
+        // Reload the page to show the updated share link list
+        // Only reload if on a share page
+        if (window.location.pathname.includes('/share/')) {
+            window.location.reload();
+        }
     }
 }
 
