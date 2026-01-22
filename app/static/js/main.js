@@ -1,5 +1,148 @@
 // PyFileStorage - Main JavaScript
 
+// ==================== Internationalization (i18n) ====================
+const i18n = {
+    currentLang: 'en',
+    translations: {},
+    
+    async init() {
+        this.currentLang = localStorage.getItem('lang') || navigator.language.split('-')[0] || 'en';
+        // Fallback to 'en' if language is not supported
+        if (!['en', 'ja'].includes(this.currentLang)) {
+            this.currentLang = 'en';
+        }
+        await this.loadTranslations(this.currentLang);
+        this.applyTranslations();
+        this.updateLangAttribute();
+    },
+    
+    async loadTranslations(lang) {
+        try {
+            const response = await fetch(`/static/locales/${lang}.json`);
+            if (response.ok) {
+                this.translations = await response.json();
+            } else {
+                console.warn(`Could not load translations for ${lang}, falling back to English`);
+                if (lang !== 'en') {
+                    const enResponse = await fetch('/static/locales/en.json');
+                    if (enResponse.ok) {
+                        this.translations = await enResponse.json();
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error loading translations:', error);
+        }
+    },
+    
+    t(key) {
+        const keys = key.split('.');
+        let value = this.translations;
+        for (const k of keys) {
+            if (value && typeof value === 'object' && k in value) {
+                value = value[k];
+            } else {
+                return key; // Return key if translation not found
+            }
+        }
+        return value;
+    },
+    
+    applyTranslations() {
+        // Translate elements with data-i18n attribute
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            const translation = this.t(key);
+            if (translation !== key) {
+                el.textContent = translation;
+            }
+        });
+        
+        // Translate placeholders
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+            const key = el.getAttribute('data-i18n-placeholder');
+            const translation = this.t(key);
+            if (translation !== key) {
+                el.placeholder = translation;
+            }
+        });
+        
+        // Translate titles
+        document.querySelectorAll('[data-i18n-title]').forEach(el => {
+            const key = el.getAttribute('data-i18n-title');
+            const translation = this.t(key);
+            if (translation !== key) {
+                el.title = translation;
+            }
+        });
+    },
+    
+    async setLanguage(lang) {
+        this.currentLang = lang;
+        localStorage.setItem('lang', lang);
+        await this.loadTranslations(lang);
+        this.applyTranslations();
+        this.updateLangAttribute();
+        this.updateLangDropdown();
+    },
+    
+    updateLangAttribute() {
+        document.documentElement.setAttribute('data-lang', this.currentLang);
+        document.documentElement.setAttribute('lang', this.currentLang);
+    },
+    
+    updateLangDropdown() {
+        document.querySelectorAll('.lang-option').forEach(option => {
+            if (option.dataset.lang === this.currentLang) {
+                option.classList.add('active');
+            } else {
+                option.classList.remove('active');
+            }
+        });
+    }
+};
+
+// Make i18n globally available
+window.i18n = i18n;
+
+// Initialize i18n when DOM is ready
+// This ensures translations are loaded before other scripts need them
+(function initI18n() {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => i18n.init());
+    } else {
+        i18n.init();
+    }
+})();
+
+// Language selector
+(function() {
+    const langToggle = document.getElementById('lang-toggle');
+    const langDropdown = document.getElementById('lang-dropdown');
+    
+    if (langToggle && langDropdown) {
+        langToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            langDropdown.classList.toggle('active');
+        });
+        
+        document.addEventListener('click', () => {
+            langDropdown.classList.remove('active');
+        });
+        
+        document.querySelectorAll('.lang-option').forEach(option => {
+            option.addEventListener('click', () => {
+                const lang = option.dataset.lang;
+                i18n.setLanguage(lang);
+                langDropdown.classList.remove('active');
+            });
+        });
+    }
+    
+    // Initialize active state
+    i18n.updateLangDropdown();
+})();
+
 // Theme Management
 (function() {
     const themeToggle = document.getElementById('theme-toggle');

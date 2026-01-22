@@ -1,0 +1,68 @@
+{
+  "app_name": "PyFileStorage",
+  "nav": {
+    "files": "ファイル",
+    "admin": "管理",
+    "logout": "ログアウト"
+  },
+  "file_explorer": {
+    "home": "ホーム",
+    "storage": "ストレージ",
+    "new_folder": "新規フォルダ",
+    "upload_files": "ファイルをアップロード",
+    "drop_files_here": "ここにファイルをドロップしてアップロード",
+    "folders": "フォルダ",
+    "files": "ファイル",
+    "name": "名前",
+    "size": "サイズ",
+    "modified": "更新日",
+    "actions": "操作",
+    "select_all": "すべて選択",
+    "selected_items": "件選択中",
+    "delete_selected": "選択項目を削除",
+    "download_selected": "選択項目をダウンロード",
+    "search_files": "ファイルを検索...",
+    "search_results_for": "検索結果：",
+    "no_results_found": "結果が見つかりません",
+    "try_different_search": "別の検索キーワードをお試しください",
+    "empty_folder": "このフォルダは空です",
+    "upload_or_create": "ファイルをアップロードするか、フォルダを作成してください",
+    "shared_with_me": "共有されたアイテム",
+    "shared_by": "共有元："
+  },
+  "actions": {
+    "preview": "プレビュー",
+    "download": "ダウンロード",
+    "share": "共有",
+    "rename": "名前を変更",
+    "delete": "削除",
+    "cancel": "キャンセル",
+    "create": "作成"
+  },
+  "modals": {
+    "create_folder": "新規フォルダを作成",
+    "folder_name": "フォルダ名",
+    "enter_folder_name": "フォルダ名を入力",
+    "rename": "名前を変更",
+    "new_name": "新しい名前"
+  },
+  "sorting": {
+    "sort_by": "並び替え",
+    "name_asc": "名前（A-Z）",
+    "name_desc": "名前（Z-A）",
+    "size_asc": "サイズ（小さい順）",
+    "size_desc": "サイズ（大きい順）",
+    "date_asc": "日付（古い順）",
+    "date_desc": "日付（新しい順）"
+  },
+  "confirm": {
+    "delete_folder": "このフォルダとその内容をすべて削除しますか？",
+    "delete_file": "このファイルを削除しますか？",
+    "delete_selected": "選択した項目を削除しますか？"
+  },
+  "language": {
+    "select": "言語",
+    "english": "English",
+    "japanese": "日本語"
+  }
+}
