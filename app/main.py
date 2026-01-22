@@ -3,22 +3,32 @@ PyFileStorage - Web File Storage Server
 A lightweight, secure file storage solution with user management, sharing, and media playback.
 """
 
-import os
-import sys
-import sqlite3
-import secrets
+import base64
 import hashlib
+import io
+import mimetypes
+import os
+import re
+import secrets
+import sqlite3
+import sys
 import uuid
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
-import mimetypes
-import re
 
-from flask import (Flask, render_template, request, redirect, url_for, flash,
-                   jsonify, send_file, abort, session, g)
-from werkzeug.security import generate_password_hash, check_password_hash
+from authlib.integrations.flask_client import OAuth
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from dotenv import load_dotenv
+from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
+                   request, send_file, session, url_for)
+from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+
+# Load environment variables
+load_dotenv()
 
 # Configuration
 BASE_DIR = Path(__file__).parent.absolute()
@@ -29,7 +39,7 @@ DEFAULT_QUOTA = 1024 * 1024 * 1024  # 1GB per user default
 SYSTEM_QUOTA = 10 * 1024 * 1024 * 1024  # 10GB system default
 
 # Blocked file extensions for security
-BLOCKED_EXTENSIONS = {'.exe', '.php', '.phtml', '.php3', '.php4', '.php5', 
+BLOCKED_EXTENSIONS = {'.exe', '.php', '.phtml', '.php3', '.php4', '.php5',
                        '.phps', '.cgi', '.pl', '.py', '.pyc', '.pyo', '.jsp',
                        '.jspx', '.asp', '.aspx', '.sh', '.bash', '.bat', '.cmd',
                        '.com', '.vbs', '.vbe', '.js', '.jse', '.ws', '.wsf',
@@ -40,6 +50,28 @@ app = Flask(__name__, template_folder='templates', static_folder='static')
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
+GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET')
+FILE_ENCRYPTION_SECRET = (
+    os.environ.get('FILE_ENCRYPTION_SECRET')
+    or os.environ.get('SECRET_KEY')
+    or app.secret_key
+)
+
+if not os.environ.get('FILE_ENCRYPTION_SECRET') and not os.environ.get('SECRET_KEY'):
+    print('WARNING: FILE_ENCRYPTION_SECRET or SECRET_KEY is not set. '
+          'Encrypted files may become unrecoverable after restart.')
+
+oauth = OAuth(app)
+if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+    oauth.register(
+        name='google',
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+        server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+        client_kwargs={'scope': 'openid email profile'}
+    )
 
 # Ensure upload folder exists
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
@@ -79,7 +111,7 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_login TIMESTAMP
         );
-        
+
         -- Folders table
         CREATE TABLE IF NOT EXISTS folders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,7 +122,7 @@ def init_db():
             FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE CASCADE,
             FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
         );
-        
+
         -- Files table
         CREATE TABLE IF NOT EXISTS files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,7 +136,7 @@ def init_db():
             FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
             FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
         );
-        
+
         -- Invitation links table
         CREATE TABLE IF NOT EXISTS invitations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,7 +149,7 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
         );
-        
+
         -- Share links (external)
         CREATE TABLE IF NOT EXISTS share_links (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,7 +165,7 @@ def init_db():
             FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
             FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
         );
-        
+
         -- User-to-user sharing
         CREATE TABLE IF NOT EXISTS user_shares (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -148,13 +180,13 @@ def init_db():
             FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE,
             FOREIGN KEY (shared_with_id) REFERENCES users(id) ON DELETE CASCADE
         );
-        
+
         -- System settings
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
-        
+
         -- API tokens
         CREATE TABLE IF NOT EXISTS api_tokens (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -166,14 +198,36 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
     ''')
-    
+
+    ensure_schema()
+
     # Insert default system settings
     db.execute('''INSERT OR IGNORE INTO settings (key, value) VALUES ('system_quota', ?)''',
                (str(SYSTEM_QUOTA),))
     db.execute('''INSERT OR IGNORE INTO settings (key, value) VALUES ('default_user_quota', ?)''',
                (str(DEFAULT_QUOTA),))
     db.execute('''INSERT OR IGNORE INTO settings (key, value) VALUES ('require_approval', '1')''')
-    
+
+    db.commit()
+
+
+def ensure_schema():
+    """Apply lightweight schema migrations."""
+    db = get_db()
+
+    user_columns = {row['name'] for row in db.execute("PRAGMA table_info(users)").fetchall()}
+    if 'oauth_provider' not in user_columns:
+        db.execute('ALTER TABLE users ADD COLUMN oauth_provider TEXT')
+    if 'oauth_subject' not in user_columns:
+        db.execute('ALTER TABLE users ADD COLUMN oauth_subject TEXT')
+
+    file_columns = {row['name'] for row in db.execute("PRAGMA table_info(files)").fetchall()}
+    if 'is_encrypted' not in file_columns:
+        db.execute('ALTER TABLE files ADD COLUMN is_encrypted INTEGER DEFAULT 0')
+    if 'stored_size' not in file_columns:
+        db.execute('ALTER TABLE files ADD COLUMN stored_size INTEGER DEFAULT 0')
+
+    db.execute('UPDATE files SET stored_size = size WHERE stored_size IS NULL OR stored_size = 0')
     db.commit()
 
 
@@ -224,21 +278,21 @@ def api_auth_required(f):
         token = request.headers.get('X-API-Token')
         if not token:
             return jsonify({'error': 'API token required'}), 401
-        
+
         db = get_db()
         api_token = db.execute(
             'SELECT at.*, u.* FROM api_tokens at JOIN users u ON at.user_id = u.id WHERE at.token = ?',
             (token,)
         ).fetchone()
-        
+
         if not api_token:
             return jsonify({'error': 'Invalid API token'}), 401
-        
+
         # Update last used
         db.execute('UPDATE api_tokens SET last_used = ? WHERE token = ?',
                    (datetime.now(), token))
         db.commit()
-        
+
         g.api_user = dict(api_token)
         return f(*args, **kwargs)
     return decorated_function
@@ -302,17 +356,17 @@ def check_quota(user_id, file_size):
     """Check if user has enough quota for file."""
     db = get_db()
     user = db.execute('SELECT quota, used_space FROM users WHERE id = ?', (user_id,)).fetchone()
-    
+
     if user['used_space'] + file_size > user['quota']:
         return False, "User quota exceeded"
-    
+
     # Check system quota
     system_quota = int(db.execute("SELECT value FROM settings WHERE key = 'system_quota'").fetchone()['value'])
     system_used = get_system_used_space()
-    
+
     if system_used + file_size > system_quota:
         return False, "System storage quota exceeded"
-    
+
     return True, None
 
 
@@ -323,37 +377,90 @@ def update_user_space(user_id, size_change):
     db.commit()
 
 
+def get_user_identity(user_id):
+    """Fetch minimal user identity for encryption."""
+    db = get_db()
+    return db.execute('SELECT id, email FROM users WHERE id = ?', (user_id,)).fetchone()
+
+
+def derive_user_encryption_key(user_id, email):
+    """Derive a per-user encryption key."""
+    if not email:
+        raise ValueError('Email is required for encryption')
+
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b'pyfilestorage',
+        info=f'user:{user_id}:{email}'.encode('utf-8')
+    )
+    return base64.urlsafe_b64encode(hkdf.derive(FILE_ENCRYPTION_SECRET.encode('utf-8')))
+
+
+def encrypt_for_user(data, user_id, email):
+    """Encrypt data using a user-specific key."""
+    key = derive_user_encryption_key(user_id, email)
+    return Fernet(key).encrypt(data)
+
+
+def decrypt_for_user(data, user_id, email):
+    """Decrypt data using a user-specific key."""
+    key = derive_user_encryption_key(user_id, email)
+    return Fernet(key).decrypt(data)
+
+
+def get_effective_stored_size(file_row):
+    """Get stored size for quota accounting."""
+    stored_size = file_row['stored_size'] if 'stored_size' in file_row.keys() else None
+    if stored_size:
+        return stored_size
+    return file_row['size']
+
+
+def load_file_bytes(file_row):
+    """Load and decrypt file bytes if needed."""
+    file_path = UPLOAD_FOLDER / file_row['stored_name']
+    data = file_path.read_bytes()
+    if 'is_encrypted' in file_row.keys() and file_row['is_encrypted']:
+        owner = get_user_identity(file_row['owner_id'])
+        if not owner:
+            raise ValueError('Owner not found for encrypted file')
+        return decrypt_for_user(data, owner['id'], owner['email'])
+    return data
+
+
 # ==================== Routes: Authentication ====================
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """User login page."""
+    google_login_enabled = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '')
-        
+
         db = get_db()
         user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
-        
+
         if user and check_password_hash(user['password_hash'], password):
             if not user['is_approved']:
                 flash('Your account is pending approval.', 'warning')
                 return redirect(url_for('login'))
-            
+
             session['user_id'] = user['id']
             session['email'] = user['email']
             session['name'] = user['name']
             session['role'] = user['role']
-            
+
             db.execute('UPDATE users SET last_login = ? WHERE id = ?',
                        (datetime.now(), user['id']))
             db.commit()
-            
+
             flash('Logged in successfully!', 'success')
             return redirect(url_for('index'))
         else:
             flash('Invalid email or password.', 'error')
-    
-    return render_template('login.html')
+
+    return render_template('login.html', google_login_enabled=google_login_enabled)
 
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -361,73 +468,73 @@ def register():
     """User registration page."""
     invite_token = request.args.get('invite')
     auto_approve = False
-    
+
     if invite_token:
         db = get_db()
         invitation = db.execute('''
-            SELECT * FROM invitations WHERE token = ? 
+            SELECT * FROM invitations WHERE token = ?
             AND (expires_at IS NULL OR expires_at > ?)
             AND (max_uses = 0 OR current_uses < max_uses)
         ''', (invite_token, datetime.now())).fetchone()
-        
+
         if invitation:
             auto_approve = bool(invitation['auto_approve'])
         else:
             flash('Invalid or expired invitation link.', 'error')
             return redirect(url_for('login'))
-    
+
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '')
         name = request.form.get('name', '').strip()
-        
+
         if not email or not password or not name:
             flash('All fields are required.', 'error')
             return render_template('register.html', invite_token=invite_token)
-        
+
         if len(password) < 6:
             flash('Password must be at least 6 characters.', 'error')
             return render_template('register.html', invite_token=invite_token)
-        
+
         db = get_db()
-        
+
         # Check if email exists
         existing = db.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
         if existing:
             flash('Email already registered.', 'error')
             return render_template('register.html', invite_token=invite_token)
-        
+
         # Get default quota
         default_quota = int(db.execute(
             "SELECT value FROM settings WHERE key = 'default_user_quota'"
         ).fetchone()['value'])
-        
+
         # Check if registration requires approval
         require_approval = db.execute(
             "SELECT value FROM settings WHERE key = 'require_approval'"
         ).fetchone()['value'] == '1'
-        
+
         is_approved = auto_approve or not require_approval
-        
+
         # Create user
         db.execute('''INSERT INTO users (email, password_hash, name, quota, is_approved)
                       VALUES (?, ?, ?, ?, ?)''',
                    (email, generate_password_hash(password), name, default_quota, int(is_approved)))
-        
+
         # Update invitation usage
         if invite_token:
             db.execute('UPDATE invitations SET current_uses = current_uses + 1 WHERE token = ?',
                        (invite_token,))
-        
+
         db.commit()
-        
+
         if is_approved:
             flash('Registration successful! You can now log in.', 'success')
         else:
             flash('Registration successful! Please wait for admin approval.', 'info')
-        
+
         return redirect(url_for('login'))
-    
+
     return render_template('register.html', invite_token=invite_token)
 
 
@@ -439,6 +546,86 @@ def logout():
     return redirect(url_for('login'))
 
 
+@app.route('/login/google')
+def login_google():
+    """Start Google OAuth login."""
+    if not (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET):
+        flash('Google login is not configured.', 'error')
+        return redirect(url_for('login'))
+
+    redirect_uri = url_for('login_google_callback', _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
+
+
+@app.route('/login/google/callback')
+def login_google_callback():
+    """Handle Google OAuth callback."""
+    if not (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET):
+        flash('Google login is not configured.', 'error')
+        return redirect(url_for('login'))
+
+    token = oauth.google.authorize_access_token()
+    userinfo = None
+    if token and 'id_token' in token:
+        userinfo = oauth.google.parse_id_token(token)
+    if not userinfo:
+        userinfo = oauth.google.get('userinfo').json()
+
+    email = (userinfo or {}).get('email', '').strip().lower()
+    email_verified = bool((userinfo or {}).get('email_verified'))
+    name = (userinfo or {}).get('name') or (userinfo or {}).get('given_name') or 'Google User'
+    subject = (userinfo or {}).get('sub')
+
+    if not email or not email_verified:
+        flash('Google account email is not verified.', 'error')
+        return redirect(url_for('login'))
+
+    db = get_db()
+    user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+
+    if user and user['oauth_provider'] == 'google' and user['oauth_subject'] and user['oauth_subject'] != subject:
+        flash('Google account does not match this user.', 'error')
+        return redirect(url_for('login'))
+
+    if not user:
+        default_quota = int(db.execute(
+            "SELECT value FROM settings WHERE key = 'default_user_quota'"
+        ).fetchone()['value'])
+
+        require_approval = db.execute(
+            "SELECT value FROM settings WHERE key = 'require_approval'"
+        ).fetchone()['value'] == '1'
+
+        is_approved = not require_approval
+
+        db.execute('''INSERT INTO users (email, password_hash, name, quota, is_approved, oauth_provider, oauth_subject)
+                      VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                   (email, generate_password_hash(secrets.token_urlsafe(32)), name,
+                    default_quota, int(is_approved), 'google', subject))
+        db.commit()
+        user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+
+    if not user['is_approved']:
+        flash('Your account is pending approval.', 'warning')
+        return redirect(url_for('login'))
+
+    if user['oauth_provider'] != 'google' or user['oauth_subject'] != subject:
+        db.execute('UPDATE users SET oauth_provider = ?, oauth_subject = ? WHERE id = ?',
+                   ('google', subject, user['id']))
+
+    session['user_id'] = user['id']
+    session['email'] = user['email']
+    session['name'] = user['name']
+    session['role'] = user['role']
+
+    db.execute('UPDATE users SET last_login = ? WHERE id = ?',
+               (datetime.now(), user['id']))
+    db.commit()
+
+    flash('Logged in with Google.', 'success')
+    return redirect(url_for('index'))
+
+
 # ==================== Routes: Main Dashboard ====================
 @app.route('/')
 @login_required
@@ -446,10 +633,10 @@ def index():
     """Main dashboard showing files and folders."""
     folder_id = request.args.get('folder', type=int)
     search = request.args.get('search', '').strip()
-    
+
     db = get_db()
     user_id = session['user_id']
-    
+
     # Get current folder info
     current_folder = None
     breadcrumbs = []
@@ -461,7 +648,7 @@ def index():
         if not current_folder:
             flash('Folder not found.', 'error')
             return redirect(url_for('index'))
-        
+
         # Build breadcrumbs
         folder = current_folder
         while folder:
@@ -471,14 +658,14 @@ def index():
                                     (folder['parent_id'],)).fetchone()
             else:
                 folder = None
-    
+
     if search:
         # Search mode
         folders = db.execute('''
             SELECT * FROM folders WHERE owner_id = ? AND name LIKE ?
             ORDER BY name
         ''', (user_id, f'%{search}%')).fetchall()
-        
+
         files = db.execute('''
             SELECT * FROM files WHERE owner_id = ? AND original_name LIKE ?
             ORDER BY original_name
@@ -489,12 +676,12 @@ def index():
             SELECT * FROM folders WHERE owner_id = ? AND parent_id IS ?
             ORDER BY name
         ''', (user_id, folder_id)).fetchall()
-        
+
         files = db.execute('''
             SELECT * FROM files WHERE owner_id = ? AND folder_id IS ?
             ORDER BY original_name
         ''', (user_id, folder_id)).fetchall()
-    
+
     # Get shared items
     shared_files = db.execute('''
         SELECT f.*, us.permission, u.name as owner_name
@@ -503,7 +690,7 @@ def index():
         JOIN users u ON f.owner_id = u.id
         WHERE us.shared_with_id = ?
     ''', (user_id,)).fetchall()
-    
+
     shared_folders = db.execute('''
         SELECT fo.*, us.permission, u.name as owner_name
         FROM user_shares us
@@ -511,10 +698,10 @@ def index():
         JOIN users u ON fo.owner_id = u.id
         WHERE us.shared_with_id = ?
     ''', (user_id,)).fetchall()
-    
+
     # Get user info
     user = db.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
-    
+
     return render_template('index.html',
                            folders=folders,
                            files=files,
@@ -535,30 +722,30 @@ def create_folder():
     """Create a new folder."""
     name = request.form.get('name', '').strip()
     parent_id = request.form.get('parent_id', type=int)
-    
+
     if not name:
         flash('Folder name is required.', 'error')
         return redirect(url_for('index', folder=parent_id))
-    
+
     # Sanitize folder name
     name = re.sub(r'[<>:"/\\|?*]', '', name)[:255]
-    
+
     db = get_db()
     user_id = session['user_id']
-    
+
     # Check for duplicate name in same location
     existing = db.execute('''
         SELECT id FROM folders WHERE name = ? AND owner_id = ? AND parent_id IS ?
     ''', (name, user_id, parent_id)).fetchone()
-    
+
     if existing:
         flash('A folder with this name already exists.', 'error')
         return redirect(url_for('index', folder=parent_id))
-    
+
     db.execute('INSERT INTO folders (name, parent_id, owner_id) VALUES (?, ?, ?)',
                (name, parent_id, user_id))
     db.commit()
-    
+
     flash('Folder created successfully.', 'success')
     return redirect(url_for('index', folder=parent_id))
 
@@ -572,21 +759,21 @@ def rename_folder(folder_id):
         'SELECT * FROM folders WHERE id = ? AND owner_id = ?',
         (folder_id, session['user_id'])
     ).fetchone()
-    
+
     if not folder:
         flash('Folder not found.', 'error')
         return redirect(url_for('index'))
-    
+
     name = request.form.get('name', '').strip()
     if not name:
         flash('Folder name is required.', 'error')
         return redirect(url_for('index', folder=folder['parent_id']))
-    
+
     name = re.sub(r'[<>:"/\\|?*]', '', name)[:255]
-    
+
     db.execute('UPDATE folders SET name = ? WHERE id = ?', (name, folder_id))
     db.commit()
-    
+
     flash('Folder renamed successfully.', 'success')
     return redirect(url_for('index', folder=folder['parent_id']))
 
@@ -600,11 +787,11 @@ def delete_folder(folder_id):
         'SELECT * FROM folders WHERE id = ? AND owner_id = ?',
         (folder_id, session['user_id'])
     ).fetchone()
-    
+
     if not folder:
         flash('Folder not found.', 'error')
         return redirect(url_for('index'))
-    
+
     # Get all files in folder and subfolders to delete from storage
     def delete_folder_contents(fid):
         files = db.execute('SELECT * FROM files WHERE folder_id = ?', (fid,)).fetchall()
@@ -613,24 +800,24 @@ def delete_folder(folder_id):
             file_path = UPLOAD_FOLDER / file['stored_name']
             if file_path.exists():
                 file_path.unlink()
-            total_size += file['size']
-        
+            total_size += get_effective_stored_size(file)
+
         # Recursively delete subfolders
         subfolders = db.execute('SELECT id FROM folders WHERE parent_id = ?', (fid,)).fetchall()
         for subfolder in subfolders:
             total_size += delete_folder_contents(subfolder['id'])
-        
+
         return total_size
-    
+
     total_size = delete_folder_contents(folder_id)
-    
+
     # Delete folder (cascades to files and subfolders)
     db.execute('DELETE FROM folders WHERE id = ?', (folder_id,))
-    
+
     # Update user space
     update_user_space(session['user_id'], -total_size)
     db.commit()
-    
+
     flash('Folder deleted successfully.', 'success')
     return redirect(url_for('index', folder=folder['parent_id']))
 
@@ -641,58 +828,66 @@ def delete_folder(folder_id):
 def upload_file():
     """Upload files."""
     folder_id = request.form.get('folder_id', type=int)
-    
+
     if 'files' not in request.files:
         flash('No files selected.', 'error')
         return redirect(url_for('index', folder=folder_id))
-    
+
     files = request.files.getlist('files')
     db = get_db()
     user_id = session['user_id']
-    
+
     uploaded = 0
     for file in files:
         if file.filename:
             original_name = secure_filename(file.filename)
-            
+
             # Check file extension
             if not is_safe_filename(original_name):
                 flash(f'File type not allowed: {original_name}', 'error')
                 continue
-            
+
             # Read file to check size
             file_data = file.read()
             file_size = len(file_data)
-            
-            # Check quota
-            can_upload, error = check_quota(user_id, file_size)
+
+            try:
+                encrypted_data = encrypt_for_user(file_data, user_id, session.get('email'))
+            except Exception as exc:
+                flash(f'Encryption failed for {original_name}: {exc}', 'error')
+                continue
+
+            stored_size = len(encrypted_data)
+
+            # Check quota (use stored size)
+            can_upload, error = check_quota(user_id, stored_size)
             if not can_upload:
                 flash(f'{error}: {original_name}', 'error')
                 continue
-            
+
             # Generate random stored name
             stored_name = generate_stored_name(original_name)
             mime_type = mimetypes.guess_type(original_name)[0]
-            
-            # Save file
+
+            # Save encrypted file
             file_path = UPLOAD_FOLDER / stored_name
-            file_path.write_bytes(file_data)
-            
+            file_path.write_bytes(encrypted_data)
+
             # Save to database
             db.execute('''
-                INSERT INTO files (original_name, stored_name, mime_type, size, folder_id, owner_id)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (original_name, stored_name, mime_type, file_size, folder_id, user_id))
-            
+                INSERT INTO files (original_name, stored_name, mime_type, size, stored_size, folder_id, owner_id, is_encrypted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (original_name, stored_name, mime_type, file_size, stored_size, folder_id, user_id, 1))
+
             # Update user space
-            update_user_space(user_id, file_size)
+            update_user_space(user_id, stored_size)
             uploaded += 1
-    
+
     db.commit()
-    
+
     if uploaded > 0:
         flash(f'{uploaded} file(s) uploaded successfully.', 'success')
-    
+
     return redirect(url_for('index', folder=folder_id))
 
 
@@ -702,7 +897,7 @@ def download_file(file_id):
     """Download a file."""
     db = get_db()
     user_id = session['user_id']
-    
+
     # Check ownership or shared access
     file = db.execute('''
         SELECT f.* FROM files f
@@ -711,17 +906,27 @@ def download_file(file_id):
             OR EXISTS (SELECT 1 FROM user_shares us WHERE us.file_id = f.id AND us.shared_with_id = ?)
         )
     ''', (file_id, user_id, user_id)).fetchone()
-    
+
     if not file:
         flash('File not found.', 'error')
         return redirect(url_for('index'))
-    
+
     file_path = UPLOAD_FOLDER / file['stored_name']
     if not file_path.exists():
         flash('File not found on server.', 'error')
         return redirect(url_for('index'))
-    
-    return send_file(file_path, as_attachment=True, download_name=file['original_name'])
+
+    try:
+        data = load_file_bytes(file)
+    except InvalidToken:
+        flash('File could not be decrypted.', 'error')
+        return redirect(url_for('index'))
+    except Exception as exc:
+        flash(f'Failed to read file: {exc}', 'error')
+        return redirect(url_for('index'))
+
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=file['original_name'], mimetype=file['mime_type'])
 
 
 @app.route('/file/<int:file_id>/view')
@@ -730,7 +935,7 @@ def view_file(file_id):
     """View/preview a file."""
     db = get_db()
     user_id = session['user_id']
-    
+
     file = db.execute('''
         SELECT f.* FROM files f
         WHERE f.id = ? AND (
@@ -738,17 +943,26 @@ def view_file(file_id):
             OR EXISTS (SELECT 1 FROM user_shares us WHERE us.file_id = f.id AND us.shared_with_id = ?)
         )
     ''', (file_id, user_id, user_id)).fetchone()
-    
+
     if not file:
         flash('File not found.', 'error')
         return redirect(url_for('index'))
-    
+
     file_path = UPLOAD_FOLDER / file['stored_name']
     if not file_path.exists():
         flash('File not found on server.', 'error')
         return redirect(url_for('index'))
-    
-    return send_file(file_path, mimetype=file['mime_type'])
+
+    try:
+        data = load_file_bytes(file)
+    except InvalidToken:
+        flash('File could not be decrypted.', 'error')
+        return redirect(url_for('index'))
+    except Exception as exc:
+        flash(f'Failed to read file: {exc}', 'error')
+        return redirect(url_for('index'))
+
+    return send_file(io.BytesIO(data), mimetype=file['mime_type'])
 
 
 @app.route('/file/<int:file_id>/preview')
@@ -757,7 +971,7 @@ def preview_file(file_id):
     """Preview file in media player."""
     db = get_db()
     user_id = session['user_id']
-    
+
     file = db.execute('''
         SELECT f.* FROM files f
         WHERE f.id = ? AND (
@@ -765,11 +979,11 @@ def preview_file(file_id):
             OR EXISTS (SELECT 1 FROM user_shares us WHERE us.file_id = f.id AND us.shared_with_id = ?)
         )
     ''', (file_id, user_id, user_id)).fetchone()
-    
+
     if not file:
         flash('File not found.', 'error')
         return redirect(url_for('index'))
-    
+
     return render_template('preview.html', file=file, get_file_type=get_file_type)
 
 
@@ -782,31 +996,31 @@ def rename_file(file_id):
         'SELECT * FROM files WHERE id = ? AND owner_id = ?',
         (file_id, session['user_id'])
     ).fetchone()
-    
+
     if not file:
         flash('File not found.', 'error')
         return redirect(url_for('index'))
-    
+
     name = request.form.get('name', '').strip()
     if not name:
         flash('File name is required.', 'error')
         return redirect(url_for('index', folder=file['folder_id']))
-    
+
     # Keep original extension
     orig_ext = Path(file['original_name']).suffix
     new_ext = Path(name).suffix
     if new_ext.lower() != orig_ext.lower():
         name = name + orig_ext
-    
+
     name = secure_filename(name)
-    
+
     if not is_safe_filename(name):
         flash('Invalid file extension.', 'error')
         return redirect(url_for('index', folder=file['folder_id']))
-    
+
     db.execute('UPDATE files SET original_name = ? WHERE id = ?', (name, file_id))
     db.commit()
-    
+
     flash('File renamed successfully.', 'success')
     return redirect(url_for('index', folder=file['folder_id']))
 
@@ -820,25 +1034,25 @@ def delete_file(file_id):
         'SELECT * FROM files WHERE id = ? AND owner_id = ?',
         (file_id, session['user_id'])
     ).fetchone()
-    
+
     if not file:
         flash('File not found.', 'error')
         return redirect(url_for('index'))
-    
+
     folder_id = file['folder_id']
-    
+
     # Delete physical file
     file_path = UPLOAD_FOLDER / file['stored_name']
     if file_path.exists():
         file_path.unlink()
-    
+
     # Delete from database
     db.execute('DELETE FROM files WHERE id = ?', (file_id,))
-    
+
     # Update user space
-    update_user_space(session['user_id'], -file['size'])
+    update_user_space(session['user_id'], -get_effective_stored_size(file))
     db.commit()
-    
+
     flash('File deleted successfully.', 'success')
     return redirect(url_for('index', folder=folder_id))
 
@@ -852,12 +1066,12 @@ def move_file(file_id):
         'SELECT * FROM files WHERE id = ? AND owner_id = ?',
         (file_id, session['user_id'])
     ).fetchone()
-    
+
     if not file:
         return jsonify({'error': 'File not found'}), 404
-    
+
     target_folder_id = request.form.get('folder_id', type=int)
-    
+
     # Verify target folder exists and belongs to user
     if target_folder_id:
         folder = db.execute(
@@ -866,10 +1080,10 @@ def move_file(file_id):
         ).fetchone()
         if not folder:
             return jsonify({'error': 'Target folder not found'}), 404
-    
+
     db.execute('UPDATE files SET folder_id = ? WHERE id = ?', (target_folder_id, file_id))
     db.commit()
-    
+
     return jsonify({'success': True})
 
 
@@ -883,56 +1097,56 @@ def share_file(file_id):
         'SELECT * FROM files WHERE id = ? AND owner_id = ?',
         (file_id, session['user_id'])
     ).fetchone()
-    
+
     if not file:
         flash('File not found.', 'error')
         return redirect(url_for('index'))
-    
+
     if request.method == 'POST':
         share_type = request.form.get('share_type')
-        
+
         if share_type == 'link':
             # Create external share link
             token = secrets.token_urlsafe(32)
             expires_days = request.form.get('expires_days', type=int)
             password = request.form.get('password', '').strip()
-            
+
             expires_at = None
             if expires_days:
                 expires_at = datetime.now() + timedelta(days=expires_days)
-            
+
             password_hash = None
             if password:
                 password_hash = generate_password_hash(password)
-            
+
             db.execute('''
                 INSERT INTO share_links (token, file_id, created_by, password_hash, expires_at)
                 VALUES (?, ?, ?, ?, ?)
             ''', (token, file_id, session['user_id'], password_hash, expires_at))
             db.commit()
-            
+
             share_url = url_for('access_share_link', token=token, _external=True)
             flash(f'Share link created: {share_url}', 'success')
-            
+
         elif share_type == 'user':
             # Share with specific user
             email = request.form.get('email', '').strip().lower()
             permission = request.form.get('permission', 'read')
-            
+
             user = db.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
             if not user:
                 flash('User not found.', 'error')
                 return redirect(url_for('share_file', file_id=file_id))
-            
+
             if user['id'] == session['user_id']:
                 flash('Cannot share with yourself.', 'error')
                 return redirect(url_for('share_file', file_id=file_id))
-            
+
             # Check if already shared
             existing = db.execute('''
                 SELECT id FROM user_shares WHERE file_id = ? AND shared_with_id = ?
             ''', (file_id, user['id'])).fetchone()
-            
+
             if existing:
                 db.execute('UPDATE user_shares SET permission = ? WHERE id = ?',
                            (permission, existing['id']))
@@ -941,24 +1155,24 @@ def share_file(file_id):
                     INSERT INTO user_shares (file_id, owner_id, shared_with_id, permission)
                     VALUES (?, ?, ?, ?)
                 ''', (file_id, session['user_id'], user['id'], permission))
-            
+
             db.commit()
             flash(f'File shared with {email}.', 'success')
-        
+
         return redirect(url_for('share_file', file_id=file_id))
-    
+
     # Get existing shares
     share_links = db.execute(
         'SELECT * FROM share_links WHERE file_id = ?', (file_id,)
     ).fetchall()
-    
+
     user_shares = db.execute('''
         SELECT us.*, u.email, u.name
         FROM user_shares us
         JOIN users u ON us.shared_with_id = u.id
         WHERE us.file_id = ?
     ''', (file_id,)).fetchall()
-    
+
     return render_template('share.html', file=file, share_links=share_links,
                            user_shares=user_shares, item_type='file')
 
@@ -972,53 +1186,53 @@ def share_folder(folder_id):
         'SELECT * FROM folders WHERE id = ? AND owner_id = ?',
         (folder_id, session['user_id'])
     ).fetchone()
-    
+
     if not folder:
         flash('Folder not found.', 'error')
         return redirect(url_for('index'))
-    
+
     if request.method == 'POST':
         share_type = request.form.get('share_type')
-        
+
         if share_type == 'link':
             token = secrets.token_urlsafe(32)
             expires_days = request.form.get('expires_days', type=int)
             password = request.form.get('password', '').strip()
-            
+
             expires_at = None
             if expires_days:
                 expires_at = datetime.now() + timedelta(days=expires_days)
-            
+
             password_hash = None
             if password:
                 password_hash = generate_password_hash(password)
-            
+
             db.execute('''
                 INSERT INTO share_links (token, folder_id, created_by, password_hash, expires_at)
                 VALUES (?, ?, ?, ?, ?)
             ''', (token, folder_id, session['user_id'], password_hash, expires_at))
             db.commit()
-            
+
             share_url = url_for('access_share_link', token=token, _external=True)
             flash(f'Share link created: {share_url}', 'success')
-            
+
         elif share_type == 'user':
             email = request.form.get('email', '').strip().lower()
             permission = request.form.get('permission', 'read')
-            
+
             user = db.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
             if not user:
                 flash('User not found.', 'error')
                 return redirect(url_for('share_folder', folder_id=folder_id))
-            
+
             if user['id'] == session['user_id']:
                 flash('Cannot share with yourself.', 'error')
                 return redirect(url_for('share_folder', folder_id=folder_id))
-            
+
             existing = db.execute('''
                 SELECT id FROM user_shares WHERE folder_id = ? AND shared_with_id = ?
             ''', (folder_id, user['id'])).fetchone()
-            
+
             if existing:
                 db.execute('UPDATE user_shares SET permission = ? WHERE id = ?',
                            (permission, existing['id']))
@@ -1027,23 +1241,23 @@ def share_folder(folder_id):
                     INSERT INTO user_shares (folder_id, owner_id, shared_with_id, permission)
                     VALUES (?, ?, ?, ?)
                 ''', (folder_id, session['user_id'], user['id'], permission))
-            
+
             db.commit()
             flash(f'Folder shared with {email}.', 'success')
-        
+
         return redirect(url_for('share_folder', folder_id=folder_id))
-    
+
     share_links = db.execute(
         'SELECT * FROM share_links WHERE folder_id = ?', (folder_id,)
     ).fetchall()
-    
+
     user_shares = db.execute('''
         SELECT us.*, u.email, u.name
         FROM user_shares us
         JOIN users u ON us.shared_with_id = u.id
         WHERE us.folder_id = ?
     ''', (folder_id,)).fetchall()
-    
+
     return render_template('share.html', folder=folder, share_links=share_links,
                            user_shares=user_shares, item_type='folder')
 
@@ -1054,17 +1268,17 @@ def access_share_link(token):
     db = get_db()
     share = db.execute('''
         SELECT sl.*, f.original_name as file_name, f.stored_name, f.mime_type,
-               fo.name as folder_name
+               f.owner_id, f.is_encrypted, fo.name as folder_name
         FROM share_links sl
         LEFT JOIN files f ON sl.file_id = f.id
         LEFT JOIN folders fo ON sl.folder_id = fo.id
         WHERE sl.token = ?
     ''', (token,)).fetchone()
-    
+
     if not share:
         flash('Share link not found.', 'error')
         return redirect(url_for('login'))
-    
+
     # Check expiration
     if share['expires_at']:
         try:
@@ -1075,9 +1289,9 @@ def access_share_link(token):
             except ValueError:
                 expires_at = datetime.fromisoformat(share['expires_at'])
         if expires_at < datetime.now():
-        flash('Share link has expired.', 'error')
+            flash('Share link has expired.', 'error')
         return redirect(url_for('login'))
-    
+
     # Check password
     if share['password_hash']:
         if request.method == 'POST':
@@ -1088,34 +1302,44 @@ def access_share_link(token):
             session[f'share_{token}'] = True
         elif not session.get(f'share_{token}'):
             return render_template('share_password.html', token=token)
-    
+
     # Update download count
     db.execute('UPDATE share_links SET download_count = download_count + 1 WHERE token = ?',
                (token,))
     db.commit()
-    
+
     if share['file_id']:
         # Serve file
         file_path = UPLOAD_FOLDER / share['stored_name']
         if not file_path.exists():
             flash('File not found.', 'error')
             return redirect(url_for('login'))
-        
-        return send_file(file_path, as_attachment=True, download_name=share['file_name'])
-    
+
+        try:
+            data = load_file_bytes(share)
+        except InvalidToken:
+            flash('File could not be decrypted.', 'error')
+            return redirect(url_for('login'))
+        except Exception as exc:
+            flash(f'Failed to read file: {exc}', 'error')
+            return redirect(url_for('login'))
+
+        return send_file(io.BytesIO(data), as_attachment=True,
+                         download_name=share['file_name'], mimetype=share['mime_type'])
+
     elif share['folder_id']:
         # List folder contents
         files = db.execute('''
             SELECT * FROM files WHERE folder_id = ?
         ''', (share['folder_id'],)).fetchall()
-        
+
         subfolders = db.execute('''
             SELECT * FROM folders WHERE parent_id = ?
         ''', (share['folder_id'],)).fetchall()
-        
+
         return render_template('shared_folder.html', share=share, files=files,
                                folders=subfolders, format_size=format_size)
-    
+
     flash('Invalid share link.', 'error')
     return redirect(url_for('login'))
 
@@ -1129,16 +1353,16 @@ def delete_share_link(link_id):
         'SELECT * FROM share_links WHERE id = ? AND created_by = ?',
         (link_id, session['user_id'])
     ).fetchone()
-    
+
     if not link:
         flash('Share link not found.', 'error')
         return redirect(url_for('index'))
-    
+
     db.execute('DELETE FROM share_links WHERE id = ?', (link_id,))
     db.commit()
-    
+
     flash('Share link deleted.', 'success')
-    
+
     if link['file_id']:
         return redirect(url_for('share_file', file_id=link['file_id']))
     else:
@@ -1154,16 +1378,16 @@ def delete_user_share(share_id):
         'SELECT * FROM user_shares WHERE id = ? AND owner_id = ?',
         (share_id, session['user_id'])
     ).fetchone()
-    
+
     if not share:
         flash('Share not found.', 'error')
         return redirect(url_for('index'))
-    
+
     db.execute('DELETE FROM user_shares WHERE id = ?', (share_id,))
     db.commit()
-    
+
     flash('User share removed.', 'success')
-    
+
     if share['file_id']:
         return redirect(url_for('share_file', file_id=share['file_id']))
     else:
@@ -1176,7 +1400,7 @@ def delete_user_share(share_id):
 def admin_dashboard():
     """Admin dashboard."""
     db = get_db()
-    
+
     users = db.execute('SELECT * FROM users ORDER BY created_at DESC').fetchall()
     pending_users = db.execute('SELECT * FROM users WHERE is_approved = 0').fetchall()
     invitations = db.execute('''
@@ -1185,12 +1409,12 @@ def admin_dashboard():
         JOIN users u ON i.created_by = u.id
         ORDER BY i.created_at DESC
     ''').fetchall()
-    
+
     # System stats
     total_files = db.execute('SELECT COUNT(*) as count FROM files').fetchone()['count']
     total_size = get_system_used_space()
     system_quota = int(db.execute("SELECT value FROM settings WHERE key = 'system_quota'").fetchone()['value'])
-    
+
     return render_template('admin.html',
                            users=users,
                            pending_users=pending_users,
@@ -1219,20 +1443,20 @@ def delete_user(user_id):
     if user_id == session['user_id']:
         flash('Cannot delete yourself.', 'error')
         return redirect(url_for('admin_dashboard'))
-    
+
     db = get_db()
-    
+
     # Delete user's files from storage
     files = db.execute('SELECT stored_name FROM files WHERE owner_id = ?', (user_id,)).fetchall()
     for file in files:
         file_path = UPLOAD_FOLDER / file['stored_name']
         if file_path.exists():
             file_path.unlink()
-    
+
     # Delete user (cascades to files, folders, shares)
     db.execute('DELETE FROM users WHERE id = ?', (user_id,))
     db.commit()
-    
+
     flash('User deleted.', 'success')
     return redirect(url_for('admin_dashboard'))
 
@@ -1243,11 +1467,11 @@ def set_user_quota(user_id):
     """Set user's storage quota."""
     quota_mb = request.form.get('quota', type=int, default=1024)
     quota = quota_mb * 1024 * 1024  # Convert to bytes
-    
+
     db = get_db()
     db.execute('UPDATE users SET quota = ? WHERE id = ?', (quota, user_id))
     db.commit()
-    
+
     flash('User quota updated.', 'success')
     return redirect(url_for('admin_dashboard'))
 
@@ -1259,15 +1483,15 @@ def set_user_role(user_id):
     if user_id == session['user_id']:
         flash('Cannot change your own role.', 'error')
         return redirect(url_for('admin_dashboard'))
-    
+
     role = request.form.get('role', 'user')
     if role not in ('admin', 'user'):
         role = 'user'
-    
+
     db = get_db()
     db.execute('UPDATE users SET role = ? WHERE id = ?', (role, user_id))
     db.commit()
-    
+
     flash('User role updated.', 'success')
     return redirect(url_for('admin_dashboard'))
 
@@ -1279,19 +1503,19 @@ def create_invitation():
     max_uses = request.form.get('max_uses', type=int, default=1)
     expires_days = request.form.get('expires_days', type=int)
     auto_approve = request.form.get('auto_approve') == 'on'
-    
+
     token = secrets.token_urlsafe(32)
     expires_at = None
     if expires_days:
         expires_at = datetime.now() + timedelta(days=expires_days)
-    
+
     db = get_db()
     db.execute('''
         INSERT INTO invitations (token, created_by, max_uses, auto_approve, expires_at)
         VALUES (?, ?, ?, ?, ?)
     ''', (token, session['user_id'], max_uses, int(auto_approve), expires_at))
     db.commit()
-    
+
     invite_url = url_for('register', invite=token, _external=True)
     flash(f'Invitation created: {invite_url}', 'success')
     return redirect(url_for('admin_dashboard'))
@@ -1313,20 +1537,20 @@ def delete_invitation(invite_id):
 def update_settings():
     """Update system settings."""
     db = get_db()
-    
+
     system_quota_gb = request.form.get('system_quota', type=int, default=10)
     system_quota = system_quota_gb * 1024 * 1024 * 1024
-    
+
     default_quota_mb = request.form.get('default_quota', type=int, default=1024)
     default_quota = default_quota_mb * 1024 * 1024
-    
+
     require_approval = '1' if request.form.get('require_approval') == 'on' else '0'
-    
+
     db.execute("UPDATE settings SET value = ? WHERE key = 'system_quota'", (str(system_quota),))
     db.execute("UPDATE settings SET value = ? WHERE key = 'default_user_quota'", (str(default_quota),))
     db.execute("UPDATE settings SET value = ? WHERE key = 'require_approval'", (require_approval,))
     db.commit()
-    
+
     flash('Settings updated.', 'success')
     return redirect(url_for('admin_dashboard'))
 
@@ -1338,14 +1562,14 @@ def create_api_token():
     """Create an API token."""
     name = request.form.get('name', 'API Token')
     token = secrets.token_urlsafe(32)
-    
+
     db = get_db()
     db.execute('''
         INSERT INTO api_tokens (token, user_id, name)
         VALUES (?, ?, ?)
     ''', (token, session['user_id'], name))
     db.commit()
-    
+
     flash(f'API Token created: {token}', 'success')
     return redirect(url_for('settings_page'))
 
@@ -1368,41 +1592,48 @@ def api_upload():
     """API endpoint for file upload."""
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
-    
+
     file = request.files['file']
     folder_id = request.form.get('folder_id', type=int)
-    
+
     if not file.filename:
         return jsonify({'error': 'No file selected'}), 400
-    
+
     original_name = secure_filename(file.filename)
-    
+
     if not is_safe_filename(original_name):
         return jsonify({'error': 'File type not allowed'}), 400
-    
+
     file_data = file.read()
     file_size = len(file_data)
     user_id = g.api_user['user_id']
-    
-    can_upload, error = check_quota(user_id, file_size)
+
+    try:
+        encrypted_data = encrypt_for_user(file_data, user_id, g.api_user.get('email'))
+    except Exception as exc:
+        return jsonify({'error': f'Encryption failed: {exc}'}), 500
+
+    stored_size = len(encrypted_data)
+
+    can_upload, error = check_quota(user_id, stored_size)
     if not can_upload:
         return jsonify({'error': error}), 400
-    
+
     stored_name = generate_stored_name(original_name)
     mime_type = mimetypes.guess_type(original_name)[0]
-    
+
     file_path = UPLOAD_FOLDER / stored_name
-    file_path.write_bytes(file_data)
-    
+    file_path.write_bytes(encrypted_data)
+
     db = get_db()
     cursor = db.execute('''
-        INSERT INTO files (original_name, stored_name, mime_type, size, folder_id, owner_id)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (original_name, stored_name, mime_type, file_size, folder_id, user_id))
-    
-    update_user_space(user_id, file_size)
+        INSERT INTO files (original_name, stored_name, mime_type, size, stored_size, folder_id, owner_id, is_encrypted)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (original_name, stored_name, mime_type, file_size, stored_size, folder_id, user_id, 1))
+
+    update_user_space(user_id, stored_size)
     db.commit()
-    
+
     return jsonify({
         'success': True,
         'file_id': cursor.lastrowid,
@@ -1417,18 +1648,18 @@ def api_list_files():
     """API endpoint to list files."""
     folder_id = request.args.get('folder_id', type=int)
     user_id = g.api_user['user_id']
-    
+
     db = get_db()
     files = db.execute('''
         SELECT id, original_name, mime_type, size, created_at
         FROM files WHERE owner_id = ? AND folder_id IS ?
     ''', (user_id, folder_id)).fetchall()
-    
+
     folders = db.execute('''
         SELECT id, name, created_at
         FROM folders WHERE owner_id = ? AND parent_id IS ?
     ''', (user_id, folder_id)).fetchall()
-    
+
     return jsonify({
         'files': [dict(f) for f in files],
         'folders': [dict(f) for f in folders]
@@ -1440,21 +1671,29 @@ def api_list_files():
 def api_download_file(file_id):
     """API endpoint to download a file."""
     user_id = g.api_user['user_id']
-    
+
     db = get_db()
     file = db.execute(
         'SELECT * FROM files WHERE id = ? AND owner_id = ?',
         (file_id, user_id)
     ).fetchone()
-    
+
     if not file:
         return jsonify({'error': 'File not found'}), 404
-    
+
     file_path = UPLOAD_FOLDER / file['stored_name']
     if not file_path.exists():
         return jsonify({'error': 'File not found on server'}), 404
-    
-    return send_file(file_path, as_attachment=True, download_name=file['original_name'])
+
+    try:
+        data = load_file_bytes(file)
+    except InvalidToken:
+        return jsonify({'error': 'File could not be decrypted'}), 500
+    except Exception as exc:
+        return jsonify({'error': f'Failed to read file: {exc}'}), 500
+
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=file['original_name'], mimetype=file['mime_type'])
 
 
 @app.route('/api/file/<int:file_id>', methods=['DELETE'])
@@ -1462,24 +1701,24 @@ def api_download_file(file_id):
 def api_delete_file(file_id):
     """API endpoint to delete a file."""
     user_id = g.api_user['user_id']
-    
+
     db = get_db()
     file = db.execute(
         'SELECT * FROM files WHERE id = ? AND owner_id = ?',
         (file_id, user_id)
     ).fetchone()
-    
+
     if not file:
         return jsonify({'error': 'File not found'}), 404
-    
+
     file_path = UPLOAD_FOLDER / file['stored_name']
     if file_path.exists():
         file_path.unlink()
-    
+
     db.execute('DELETE FROM files WHERE id = ?', (file_id,))
-    update_user_space(user_id, -file['size'])
+    update_user_space(user_id, -get_effective_stored_size(file))
     db.commit()
-    
+
     return jsonify({'success': True})
 
 
@@ -1490,10 +1729,10 @@ def settings_page():
     """User settings page."""
     db = get_db()
     user = db.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
-    
+
     if request.method == 'POST':
         action = request.form.get('action')
-        
+
         if action == 'update_profile':
             name = request.form.get('name', '').strip()
             if name:
@@ -1501,12 +1740,12 @@ def settings_page():
                 session['name'] = name
                 db.commit()
                 flash('Profile updated.', 'success')
-        
+
         elif action == 'change_password':
             current = request.form.get('current_password', '')
             new = request.form.get('new_password', '')
             confirm = request.form.get('confirm_password', '')
-            
+
             if not check_password_hash(user['password_hash'], current):
                 flash('Current password is incorrect.', 'error')
             elif len(new) < 6:
@@ -1518,13 +1757,13 @@ def settings_page():
                            (generate_password_hash(new), session['user_id']))
                 db.commit()
                 flash('Password changed.', 'success')
-        
+
         return redirect(url_for('settings_page'))
-    
+
     api_tokens = db.execute(
         'SELECT * FROM api_tokens WHERE user_id = ?', (session['user_id'],)
     ).fetchall()
-    
+
     return render_template('settings.html', user=user, api_tokens=api_tokens, format_size=format_size)
 
 
@@ -1561,10 +1800,10 @@ def main():
     with app.app_context():
         init_db()
         create_admin_user()
-    
+
     # Debug mode should only be enabled in development
     debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
-    
+
     print("Starting PyFileStorage server...")
     print("Default admin: admin@local.host / admin123")
     if debug_mode:

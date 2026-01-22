@@ -7,7 +7,7 @@ A lightweight, secure web file storage server built with Python and Flask.
 - **User Management**: Admin and user roles with approval workflow
 - **Invitation System**: Create invitation links with expiration, usage limits, and auto-approval options
 - **File Sharing**: External share links and user-to-user sharing with read/write permissions
-- **Authentication**: Email login with password (designed for future Google OAuth2.0 support)
+- **Authentication**: Email/password and Google OAuth2.0 login
 - **Modern UI**: Clean black & white design with dark mode support
 - **File Search**: Search files and folders by name
 - **Drag & Drop**: Upload files by dragging and dropping
@@ -33,12 +33,17 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-3. Run the server:
+3. Copy environment template and configure it:
+```bash
+cp .env.example .env
+```
+
+4. Run the server:
 ```bash
 python app/main.py
 ```
 
-4. Open your browser and navigate to `http://localhost:5000`
+5. Open your browser and navigate to `http://localhost:5000`
 
 ## Default Admin Account
 
@@ -55,6 +60,24 @@ python app/main.py
 | `ADMIN_EMAIL` | Default admin email | admin@local.host |
 | `ADMIN_PASSWORD` | Default admin password | admin123 |
 | `FLASK_DEBUG` | Enable debug mode (set to '1' for development) | 0 |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID | (not set) |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | (not set) |
+| `FILE_ENCRYPTION_SECRET` | Master secret for per-user file encryption | (not set) |
+
+### Google OAuth Setup
+
+Create a Google OAuth client and set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in `.env`.
+Add the following authorized redirect URI in Google Cloud Console:
+
+- `http://localhost:5000/login/google/callback`
+
+If these variables are not set, the Google login button is hidden.
+
+### File Encryption Notes
+
+Uploaded files are encrypted at rest using a per-user key derived from `FILE_ENCRYPTION_SECRET`.
+Set `FILE_ENCRYPTION_SECRET` (or `SECRET_KEY`) to a stable value before production use.
+If the secret changes, encrypted files may become unreadable.
 
 ## API Usage
 
@@ -99,6 +122,7 @@ curl -X DELETE \
 
 - Blocked dangerous file extensions (.exe, .php, .bat, etc.)
 - Randomized stored filenames to prevent direct access attacks
+- Per-user file encryption at rest with on-demand decryption for preview/download
 - Password protection for share links
 - User approval workflow
 - Session-based authentication
