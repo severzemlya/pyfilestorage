@@ -316,6 +316,12 @@ document.querySelectorAll('.folder-card').forEach(folder => {
             const formData = new FormData();
             formData.append('folder_id', folderId);
             
+            // Add CSRF token from meta tag
+            const csrfToken = document.querySelector('meta[name="csrf-token"]');
+            if (csrfToken) {
+                formData.append('csrf_token', csrfToken.content);
+            }
+            
             fetch(`/file/${fileId}/move`, {
                 method: 'POST',
                 body: formData

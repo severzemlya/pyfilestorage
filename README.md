@@ -68,6 +68,34 @@ python app/main.py
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID | (not set) |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | (not set) |
 | `FILE_ENCRYPTION_SECRET` | Master secret for per-user file encryption | (not set) |
+| `APP_DOMAIN` | Main application domain (for domain separation security) | (not set) |
+| `CONTENT_DOMAIN` | Separate domain for file serving (XSS protection) | (not set) |
+| `UPLOAD_FOLDER` | Absolute path for file storage (can be different drive) | uploads/ |
+
+### Domain Separation (Security)
+
+For enhanced security against XSS attacks via uploaded files, you can configure domain separation:
+
+- `APP_DOMAIN`: The main domain where authenticated operations occur (e.g., `app.example.com`)
+- `CONTENT_DOMAIN`: A separate domain for serving uploaded content (e.g., `content.example.com`)
+
+When both are configured:
+- Session cookies are only sent to `APP_DOMAIN`
+- `CONTENT_DOMAIN` can only serve file content (view/download), not perform authenticated operations
+- This prevents malicious uploaded files from stealing session cookies
+
+### Custom Upload Folder
+
+By default, files are stored in the `uploads/` folder relative to the app directory.
+You can specify an absolute path via `UPLOAD_FOLDER` environment variable to store files on a different drive or location:
+
+```bash
+# Linux/macOS
+UPLOAD_FOLDER=/mnt/storage/pyfilestorage/uploads
+
+# Windows
+UPLOAD_FOLDER=D:\storage\pyfilestorage\uploads
+```
 
 ### Google OAuth Setup
 
@@ -90,7 +118,7 @@ If the secret changes, encrypted files may become unreadable.
 
 All API requests require an API token in the `X-API-Token` header.
 
-Generate tokens from Settings > API Tokens.
+Generate tokens from Settings > API Tokens. **Important**: The token is shown only once during creation and is stored securely hashed in the database. Copy it immediately!
 
 ### Upload File
 
@@ -132,6 +160,10 @@ curl -X DELETE \
 - User approval workflow
 - Session-based authentication
 - CSRF protection via Flask-WTF
+- Content-Security-Policy (CSP) headers to prevent XSS
+- API token hashing for secure storage
+- Domain separation support for XSS/session hijacking prevention
+- Secure session cookie configuration (HTTPOnly, SameSite)
 
 ## Screenshots
 

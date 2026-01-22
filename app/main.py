@@ -24,7 +24,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from dotenv import load_dotenv
 from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
-                   request, send_file, session, url_for)
+                   request, send_file, session, url_for, Response)
+from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -74,8 +75,16 @@ def load_settings():
 # Load settings from JSON file
 APP_SETTINGS = load_settings()
 
-# Path settings (derived from settings or defaults)
-UPLOAD_FOLDER = BASE_DIR / APP_SETTINGS.get('upload_folder', 'uploads')
+# Path settings (derived from settings or environment variables)
+# UPLOAD_FOLDER can be set via environment variable for absolute paths (e.g., different drives)
+_upload_folder_env = os.environ.get('UPLOAD_FOLDER', '').strip()
+if _upload_folder_env:
+    # Use absolute path from environment variable
+    UPLOAD_FOLDER = Path(_upload_folder_env)
+else:
+    # Fall back to settings.json or default (relative to app directory)
+    UPLOAD_FOLDER = BASE_DIR / APP_SETTINGS.get('upload_folder', 'uploads')
+
 DATABASE = BASE_DIR / APP_SETTINGS.get('database_path', 'storage.db')
 
 # Site settings
@@ -83,6 +92,12 @@ APP_NAME = APP_SETTINGS.get('app_name', 'PyFileStorage')
 SITE_URL = APP_SETTINGS.get('site_url', 'http://localhost:5000')
 SITE_DESCRIPTION = APP_SETTINGS.get('site_description', 'A lightweight, secure web file storage server')
 OG_IMAGE = APP_SETTINGS.get('og_image', '/static/og-image.png')
+
+# Domain separation settings for XSS/session hijacking prevention
+# APP_DOMAIN: Main application domain for authenticated operations
+# CONTENT_DOMAIN: Separate domain for serving uploaded files
+APP_DOMAIN = os.environ.get('APP_DOMAIN', '').strip() or None
+CONTENT_DOMAIN = os.environ.get('CONTENT_DOMAIN', '').strip() or None
 
 # Quota settings
 MAX_FILE_SIZE = APP_SETTINGS.get('max_file_size', 100 * 1024 * 1024)
@@ -104,6 +119,14 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 # Set MAX_CONTENT_LENGTH to None if max_file_size is 0 or null (unlimited)
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE if MAX_FILE_SIZE else None
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Session cookie security settings - don't set domain to ensure cookie is app-domain only
+app.config['SESSION_COOKIE_SECURE'] = not os.environ.get('FLASK_DEBUG', '0') == '1'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+# Initialize CSRF protection
+csrf = CSRFProtect(app)
 
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET')
@@ -129,6 +152,70 @@ if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
 
 # Ensure upload folder exists
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+
+
+# ==================== Security Middleware ====================
+
+# Routes that are allowed on CONTENT_DOMAIN (file serving only)
+CONTENT_DOMAIN_ALLOWED_ROUTES = frozenset([
+    'view_file', 'download_file', 'get_thumbnail', 'static',
+    'access_share_link', 'shared_folder_download'
+])
+
+
+@app.before_request
+def check_domain_routing():
+    """
+    Security middleware to enforce domain separation.
+    If CONTENT_DOMAIN is configured:
+    - APP_DOMAIN: Full application access
+    - CONTENT_DOMAIN: Only file viewing/download routes
+    This prevents XSS attacks via uploaded files from stealing session cookies.
+    """
+    if not CONTENT_DOMAIN or not APP_DOMAIN:
+        return  # Domain separation not configured
+
+    host = request.host.split(':')[0]  # Remove port if present
+    endpoint = request.endpoint
+
+    # Allow static files on any domain
+    if endpoint == 'static':
+        return
+
+    # If request is to CONTENT_DOMAIN, only allow content-serving routes
+    if host == CONTENT_DOMAIN:
+        if endpoint and endpoint not in CONTENT_DOMAIN_ALLOWED_ROUTES:
+            abort(404)  # Reject non-content routes on content domain
+
+    # If request is to APP_DOMAIN with CONTENT_DOMAIN configured,
+    # the app works normally (all routes available)
+
+
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses."""
+    # Content-Security-Policy to prevent XSS from uploaded files
+    # Allow inline styles and scripts for the app, but restrict other content
+    csp_directives = [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
+        "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
+        "font-src 'self' https://cdnjs.cloudflare.com",
+        "img-src 'self' data: blob:",
+        "media-src 'self' blob:",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+    ]
+    response.headers['Content-Security-Policy'] = '; '.join(csp_directives)
+
+    # Additional security headers
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+
+    return response
 
 
 # ==================== Database Functions ====================
@@ -333,10 +420,12 @@ def api_auth_required(f):
         if not token:
             return jsonify({'error': 'API token required'}), 401
 
+        # Hash the provided token and look up by hash
+        token_hash = hash_api_token(token)
         db = get_db()
         api_token = db.execute(
             'SELECT at.*, u.* FROM api_tokens at JOIN users u ON at.user_id = u.id WHERE at.token = ?',
-            (token,)
+            (token_hash,)
         ).fetchone()
 
         if not api_token:
@@ -344,12 +433,17 @@ def api_auth_required(f):
 
         # Update last used
         db.execute('UPDATE api_tokens SET last_used = ? WHERE token = ?',
-                   (datetime.now(), token))
+                   (datetime.now(), token_hash))
         db.commit()
 
         g.api_user = dict(api_token)
         return f(*args, **kwargs)
     return decorated_function
+
+
+def hash_api_token(token):
+    """Hash an API token for secure storage."""
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
 
 
 def get_current_user():
@@ -481,6 +575,38 @@ def load_file_bytes(file_row):
             raise ValueError('Owner not found for encrypted file')
         return decrypt_for_user(data, owner['id'], owner['email'])
     return data
+
+
+def stream_file_response(file_row, as_attachment=False, download_name=None):
+    """
+    Create a streaming file response.
+    For encrypted files, we must decrypt first (Fernet requires full ciphertext).
+    For unencrypted files, we can stream directly from disk.
+    """
+    file_path = UPLOAD_FOLDER / file_row['stored_name']
+    mime_type = file_row.get('mime_type') or 'application/octet-stream'
+    original_name = download_name or file_row.get('original_name', 'file')
+
+    is_encrypted = 'is_encrypted' in file_row.keys() and file_row['is_encrypted']
+
+    if is_encrypted:
+        # For encrypted files, we must decrypt first (Fernet limitation)
+        # But we use BytesIO to avoid keeping multiple copies in memory
+        data = load_file_bytes(file_row)
+        return send_file(
+            io.BytesIO(data),
+            mimetype=mime_type,
+            as_attachment=as_attachment,
+            download_name=original_name
+        )
+    else:
+        # For unencrypted files, stream directly from disk
+        return send_file(
+            file_path,
+            mimetype=mime_type,
+            as_attachment=as_attachment,
+            download_name=original_name
+        )
 
 
 # ==================== Routes: Authentication ====================
@@ -1204,16 +1330,13 @@ def download_file(file_id):
         return redirect(url_for('index'))
 
     try:
-        data = load_file_bytes(file)
+        return stream_file_response(file, as_attachment=True, download_name=file['original_name'])
     except InvalidToken:
         flash('File could not be decrypted.', 'error')
         return redirect(url_for('index'))
     except Exception as exc:
         flash(f'Failed to read file: {exc}', 'error')
         return redirect(url_for('index'))
-
-    return send_file(io.BytesIO(data), as_attachment=True,
-                     download_name=file['original_name'], mimetype=file['mime_type'])
 
 
 @app.route('/file/<int:file_id>/view')
@@ -1241,15 +1364,13 @@ def view_file(file_id):
         return redirect(url_for('index'))
 
     try:
-        data = load_file_bytes(file)
+        return stream_file_response(file, as_attachment=False)
     except InvalidToken:
         flash('File could not be decrypted.', 'error')
         return redirect(url_for('index'))
     except Exception as exc:
         flash(f'Failed to read file: {exc}', 'error')
         return redirect(url_for('index'))
-
-    return send_file(io.BytesIO(data), mimetype=file['mime_type'])
 
 
 @app.route('/file/<int:file_id>/preview')
@@ -1860,18 +1981,22 @@ def update_settings():
 @app.route('/api/token', methods=['POST'])
 @login_required
 def create_api_token():
-    """Create an API token."""
+    """Create an API token. The token is shown only once and stored as a hash."""
     name = request.form.get('name', 'API Token')
-    token = secrets.token_urlsafe(32)
+    # Generate the plain token to show to user (only once)
+    plain_token = secrets.token_urlsafe(32)
+    # Store the hash in database for security
+    token_hash = hash_api_token(plain_token)
 
     db = get_db()
     db.execute('''
         INSERT INTO api_tokens (token, user_id, name)
         VALUES (?, ?, ?)
-    ''', (token, session['user_id'], name))
+    ''', (token_hash, session['user_id'], name))
     db.commit()
 
-    flash(f'API Token created: {token}', 'success')
+    # Show plain token only once - it cannot be recovered
+    flash(f'API Token created (copy it now, it won\'t be shown again): {plain_token}', 'success')
     return redirect(url_for('settings_page'))
 
 
@@ -1888,6 +2013,7 @@ def delete_api_token(token_id):
 
 
 @app.route('/api/upload', methods=['POST'])
+@csrf.exempt  # API uses token authentication, not session
 @api_auth_required
 def api_upload():
     """API endpoint for file upload."""
@@ -1987,17 +2113,15 @@ def api_download_file(file_id):
         return jsonify({'error': 'File not found on server'}), 404
 
     try:
-        data = load_file_bytes(file)
+        return stream_file_response(file, as_attachment=True, download_name=file['original_name'])
     except InvalidToken:
         return jsonify({'error': 'File could not be decrypted'}), 500
     except Exception as exc:
         return jsonify({'error': f'Failed to read file: {exc}'}), 500
 
-    return send_file(io.BytesIO(data), as_attachment=True,
-                     download_name=file['original_name'], mimetype=file['mime_type'])
-
 
 @app.route('/api/file/<int:file_id>', methods=['DELETE'])
+@csrf.exempt  # API uses token authentication, not session
 @api_auth_required
 def api_delete_file(file_id):
     """API endpoint to delete a file."""
@@ -2094,8 +2218,27 @@ def inject_globals():
         'app_name': APP_NAME,
         'site_url': SITE_URL,
         'site_description': SITE_DESCRIPTION,
-        'og_image': OG_IMAGE
+        'og_image': OG_IMAGE,
+        'content_domain': CONTENT_DOMAIN,
+        'app_domain': APP_DOMAIN
     }
+
+
+def content_url(path):
+    """
+    Generate URL for content serving.
+    If CONTENT_DOMAIN is configured, use it for file URLs.
+    Otherwise, use the normal URL.
+    """
+    if CONTENT_DOMAIN:
+        # Build URL with content domain
+        scheme = 'https' if not os.environ.get('FLASK_DEBUG', '0') == '1' else 'http'
+        return f"{scheme}://{CONTENT_DOMAIN}{path}"
+    return path
+
+
+# Register template filter for content URLs
+app.jinja_env.filters['content_url'] = content_url
 
 
 # ==================== Main ====================

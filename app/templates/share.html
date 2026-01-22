@@ -26,6 +26,7 @@
             </div>
             <div class="card-body">
                 <form method="POST" id="create-link-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="share_type" value="link">
                     
                     <div class="form-group">
@@ -59,6 +60,7 @@
             </div>
             <div class="card-body">
                 <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="share_type" value="user">
                     
                     <div class="form-group">
@@ -123,6 +125,7 @@
                         <td>{{ link.download_count }}</td>
                         <td>
                             <form method="POST" action="{{ url_for('delete_share_link', link_id=link.id) }}" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-icon danger" title="Delete" 
                                         onclick="return confirm('Delete this share link?')">
                                     <i class="fas fa-trash"></i>
@@ -176,6 +179,7 @@
                         <td>{{ share.created_at }}</td>
                         <td>
                             <form method="POST" action="{{ url_for('delete_user_share', share_id=share.id) }}" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-icon danger" title="Remove access" 
                                         onclick="return confirm('Remove access for this user?')">
                                     <i class="fas fa-user-minus"></i>
