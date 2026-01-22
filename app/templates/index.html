@@ -24,16 +24,6 @@
         </div>
     </div>
 
-    <!-- Quota display -->
-    <div class="quota-bar">
-        <div class="quota-info">
-            <span><i class="fas fa-database"></i> <span data-i18n="file_explorer.storage">Storage</span>: {{ format_size(user.used_space) }} / {{ format_size(user.quota) }}</span>
-        </div>
-        <div class="quota-progress">
-            <div class="quota-fill" style="width: {{ (user.used_space / user.quota * 100) if user.quota > 0 else 0 }}%"></div>
-        </div>
-    </div>
-
     <!-- Actions bar -->
     <div class="actions-bar">
         <button class="btn btn-primary" onclick="document.getElementById('create-folder-modal').classList.add('active')">
@@ -42,9 +32,13 @@
         <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
             <i class="fas fa-upload"></i> <span data-i18n="file_explorer.upload_files">Upload Files</span>
         </button>
+        <button class="btn btn-secondary" onclick="document.getElementById('folder-input').click()">
+            <i class="fas fa-folder-open"></i> <span data-i18n="file_explorer.upload_folder">Upload Folder</span>
+        </button>
         <form id="upload-form" method="POST" action="{{ url_for('upload_file') }}" enctype="multipart/form-data" style="display: none;">
             <input type="hidden" name="folder_id" value="{{ current_folder.id if current_folder else '' }}">
-            <input type="file" id="file-input" name="files" multiple onchange="this.form.submit()">
+            <input type="file" id="file-input" name="files" multiple>
+            <input type="file" id="folder-input" name="files" webkitdirectory multiple>
         </form>
         
         <!-- Bulk actions (hidden by default, shown when items are selected) -->
@@ -128,6 +122,9 @@
                         <td class="date-col">{{ folder.created_at.strftime('%Y-%m-%d %H:%M') if folder.created_at else '—' }}</td>
                         <td class="actions-col">
                             <div class="row-actions">
+                                <a href="{{ url_for('download_folder', folder_id=folder.id) }}" class="btn-icon" title="Download" data-i18n-title="actions.download">
+                                    <i class="fas fa-download"></i>
+                                </a>
                                 <button class="btn-icon" title="Share" data-i18n-title="actions.share" onclick="window.location.href='{{ url_for('share_folder', folder_id=folder.id) }}'">
                                     <i class="fas fa-share-alt"></i>
                                 </button>
@@ -152,12 +149,18 @@
                             <input type="checkbox" class="item-checkbox" data-type="file" data-id="{{ file.id }}">
                         </td>
                         <td class="icon-col">
+                            {% if get_file_type(file.mime_type) == 'image' %}
+                            <div class="file-thumbnail" data-file-id="{{ file.id }}">
+                                <img src="{{ url_for('get_thumbnail', file_id=file.id) }}" alt="" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="file-icon-small image-icon" style="display:none"><i class="fas fa-image"></i></div>
+                            </div>
+                            {% elif get_file_type(file.mime_type) == 'video' %}
+                            <div class="file-thumbnail video-thumbnail" data-file-id="{{ file.id }}">
+                                <img src="{{ url_for('get_thumbnail', file_id=file.id) }}" alt="" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="file-icon-small video-icon" style="display:none"><i class="fas fa-video"></i></div>
+                                <div class="video-play-icon"><i class="fas fa-play"></i></div>
+                            </div>
+                            {% else %}
                             <div class="file-icon-small {{ get_file_type(file.mime_type) }}-icon">
-                                {% if get_file_type(file.mime_type) == 'image' %}
-                                <i class="fas fa-image"></i>
-                                {% elif get_file_type(file.mime_type) == 'video' %}
-                                <i class="fas fa-video"></i>
-                                {% elif get_file_type(file.mime_type) == 'audio' %}
+                                {% if get_file_type(file.mime_type) == 'audio' %}
                                 <i class="fas fa-music"></i>
                                 {% elif get_file_type(file.mime_type) == 'pdf' %}
                                 <i class="fas fa-file-pdf"></i>
@@ -167,6 +170,7 @@
                                 <i class="fas fa-file"></i>
                                 {% endif %}
                             </div>
+                            {% endif %}
                         </td>
                         <td class="name-col">
                             <span class="file-name-text" title="{{ file.original_name }}">{{ file.original_name }}</span>
@@ -318,12 +322,31 @@
 
 {% endblock %}
 
+{% block footer_content %}
+<div class="footer-storage-indicator">
+    <div class="footer-storage-info">
+        <i class="fas fa-database"></i>
+        <span data-i18n="file_explorer.storage">Storage</span>: 
+        <span id="footer-used-space">{{ format_size(user.used_space) }}</span> / 
+        <span id="footer-quota">{{ format_size(user.quota) }}</span>
+    </div>
+    <div class="footer-quota-progress">
+        <div class="footer-quota-fill" id="footer-quota-fill" style="width: {{ (user.used_space / user.quota * 100) if user.quota > 0 else 0 }}%"></div>
+    </div>
+</div>
+<p class="footer-copyright">&copy; {{ current_year }} {{ app_name }}. All rights reserved.</p>
+{% endblock %}
+
 {% block extra_js %}
 <script>
+// Upload configuration
+const currentFolderId = '{{ current_folder.id if current_folder else '' }}';
+
 // Drag and drop upload
 const dropZone = document.getElementById('drop-zone');
 const uploadForm = document.getElementById('upload-form');
 const fileInput = document.getElementById('file-input');
+const folderInput = document.getElementById('folder-input');
 
 ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
     document.body.addEventListener(eventName, preventDefaults, false);
@@ -346,13 +369,188 @@ function preventDefaults(e) {
     }, false);
 });
 
-document.body.addEventListener('drop', (e) => {
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-        fileInput.files = files;
-        uploadForm.submit();
+// Handle file drop with folder structure support
+document.body.addEventListener('drop', async (e) => {
+    const items = e.dataTransfer.items;
+    if (items && items.length > 0) {
+        const files = [];
+        const relativePaths = [];
+        
+        // Check if it contains directories
+        const hasDirectory = Array.from(items).some(item => {
+            const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+            return entry && entry.isDirectory;
+        });
+        
+        if (hasDirectory) {
+            // Process directories recursively
+            for (const item of items) {
+                const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+                if (entry) {
+                    await traverseFileTree(entry, '', files, relativePaths);
+                }
+            }
+            uploadFilesWithProgress(files, relativePaths);
+        } else {
+            // Simple file upload
+            const fileList = e.dataTransfer.files;
+            for (let i = 0; i < fileList.length; i++) {
+                files.push(fileList[i]);
+                relativePaths.push(fileList[i].name);
+            }
+            uploadFilesWithProgress(files, relativePaths);
+        }
     }
 }, false);
+
+// Traverse file tree for directory upload
+async function traverseFileTree(item, path, files, relativePaths) {
+    return new Promise((resolve) => {
+        if (item.isFile) {
+            item.file((file) => {
+                files.push(file);
+                relativePaths.push(path + file.name);
+                resolve();
+            });
+        } else if (item.isDirectory) {
+            const dirReader = item.createReader();
+            dirReader.readEntries(async (entries) => {
+                for (const entry of entries) {
+                    await traverseFileTree(entry, path + item.name + '/', files, relativePaths);
+                }
+                resolve();
+            });
+        } else {
+            resolve();
+        }
+    });
+}
+
+// Handle file input change
+fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) {
+        const files = Array.from(fileInput.files);
+        const relativePaths = files.map(f => f.name);
+        uploadFilesWithProgress(files, relativePaths);
+    }
+});
+
+// Handle folder input change
+folderInput.addEventListener('change', () => {
+    if (folderInput.files.length > 0) {
+        const files = Array.from(folderInput.files);
+        const relativePaths = files.map(f => f.webkitRelativePath || f.name);
+        uploadFilesWithProgress(files, relativePaths);
+    }
+});
+
+// Upload files with progress display
+function uploadFilesWithProgress(files, relativePaths) {
+    if (files.length === 0) return;
+    
+    const progressModal = document.getElementById('upload-progress-modal');
+    const progressBar = document.getElementById('upload-progress-bar');
+    const progressPercent = document.getElementById('upload-progress-percent');
+    const progressSize = document.getElementById('upload-progress-size');
+    const fileNameSpan = document.getElementById('upload-file-name');
+    const fileCountSpan = document.getElementById('upload-file-count');
+    
+    const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+    let uploadedSize = 0;
+    let completedCount = 0;
+    
+    // Show progress modal
+    progressModal.classList.add('active');
+    fileCountSpan.textContent = `(0/${files.length})`;
+    
+    const formData = new FormData();
+    formData.append('folder_id', currentFolderId);
+    
+    for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+        formData.append('relative_paths', relativePaths[i]);
+    }
+    
+    const xhr = new XMLHttpRequest();
+    
+    xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            progressBar.style.width = percent + '%';
+            progressPercent.textContent = percent + '%';
+            progressSize.textContent = formatFileSize(e.loaded) + ' / ' + formatFileSize(e.total);
+        }
+    });
+    
+    xhr.addEventListener('load', () => {
+        progressModal.classList.remove('active');
+        
+        if (xhr.status === 200) {
+            try {
+                const response = JSON.parse(xhr.responseText);
+                if (response.success) {
+                    const count = response.count || 0;
+                    showToast('success', window.i18n ? window.i18n.t('upload.success') : `${count} file(s) uploaded successfully`);
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    showToast('error', response.error || 'Upload failed');
+                }
+            } catch (e) {
+                // Page reload response (form redirect)
+                window.location.reload();
+            }
+        } else {
+            showToast('error', window.i18n ? window.i18n.t('upload.failed') : 'Upload failed');
+        }
+    });
+    
+    xhr.addEventListener('error', () => {
+        progressModal.classList.remove('active');
+        showToast('error', window.i18n ? window.i18n.t('upload.error') : 'Upload error');
+    });
+    
+    xhr.open('POST', '{{ url_for("upload_file_ajax") }}');
+    xhr.send(formData);
+    
+    fileNameSpan.textContent = files.length > 1 
+        ? (window.i18n ? window.i18n.t('upload.multiple_files') : `${files.length} files`)
+        : files[0].name;
+}
+
+// Format file size helper
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// Toast notification helper
+function showToast(type, message) {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    
+    let icon = 'fa-info-circle';
+    if (type === 'success') icon = 'fa-check-circle';
+    else if (type === 'error') icon = 'fa-exclamation-circle';
+    else if (type === 'warning') icon = 'fa-exclamation-triangle';
+    
+    toast.innerHTML = `
+        <i class="fas ${icon}"></i>
+        <span>${message}</span>
+        <button class="toast-close" onclick="this.parentElement.remove()">&times;</button>
+    `;
+    
+    container.appendChild(toast);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        toast.classList.add('toast-fadeout');
+        setTimeout(() => toast.remove(), 300);
+    }, 5000);
+}
 
 // Rename modal
 function openRenameModal(type, id, currentName) {

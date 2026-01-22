@@ -10,6 +10,7 @@
     "storage": "ストレージ",
     "new_folder": "新規フォルダ",
     "upload_files": "ファイルをアップロード",
+    "upload_folder": "フォルダをアップロード",
     "drop_files_here": "ここにファイルをドロップしてアップロード",
     "folders": "フォルダ",
     "files": "ファイル",
@@ -64,5 +65,12 @@
     "select": "言語",
     "english": "English",
     "japanese": "日本語"
+  },
+  "upload": {
+    "uploading": "アップロード中...",
+    "success": "ファイルのアップロードが完了しました",
+    "failed": "アップロードに失敗しました",
+    "error": "アップロードエラー",
+    "multiple_files": "複数ファイル"
   }
 }

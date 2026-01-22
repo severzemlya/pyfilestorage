@@ -64,8 +64,34 @@
     </main>
 
     <footer class="footer">
+        {% block footer_content %}
         <p>&copy; {{ current_year }} {{ app_name }}. All rights reserved.</p>
+        {% endblock %}
     </footer>
+
+    <!-- Toast notification container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Upload progress modal -->
+    <div id="upload-progress-modal" class="upload-progress-modal">
+        <div class="upload-progress-content">
+            <div class="upload-progress-header">
+                <i class="fas fa-cloud-upload-alt"></i>
+                <span data-i18n="upload.uploading">Uploading...</span>
+            </div>
+            <div class="upload-progress-info">
+                <span id="upload-file-name"></span>
+                <span id="upload-file-count"></span>
+            </div>
+            <div class="upload-progress-bar-container">
+                <div class="upload-progress-bar" id="upload-progress-bar"></div>
+            </div>
+            <div class="upload-progress-percent">
+                <span id="upload-progress-percent">0%</span>
+                <span id="upload-progress-size"></span>
+            </div>
+        </div>
+    </div>
 
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     {% block extra_js %}{% endblock %}
