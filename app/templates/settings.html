@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+{% block title %}Settings - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="settings-container">
+    <h1><i class="fas fa-user-cog"></i> Settings</h1>
+
+    <!-- Storage Info -->
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-database"></i> Storage</h3>
+        </div>
+        <div class="card-body">
+            <div class="storage-info">
+                <div class="storage-stats">
+                    <div class="stat">
+                        <span class="stat-value">{{ format_size(user.used_space) }}</span>
+                        <span class="stat-label">Used</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value">{{ format_size(user.quota - user.used_space) }}</span>
+                        <span class="stat-label">Available</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value">{{ format_size(user.quota) }}</span>
+                        <span class="stat-label">Total</span>
+                    </div>
+                </div>
+                <div class="storage-bar">
+                    <div class="storage-fill" style="width: {{ (user.used_space / user.quota * 100) if user.quota > 0 else 0 }}%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Profile Settings -->
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-user"></i> Profile</h3>
+        </div>
+        <div class="card-body">
+            <form method="POST">
+                <input type="hidden" name="action" value="update_profile">
+                
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" value="{{ user.email }}" disabled>
+                    <small>Email cannot be changed</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="name">Name</label>
+                    <input type="text" id="name" name="name" value="{{ user.name }}" required>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Save Profile
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Change Password -->
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-lock"></i> Change Password</h3>
+        </div>
+        <div class="card-body">
+            <form method="POST">
+                <input type="hidden" name="action" value="change_password">
+                
+                <div class="form-group">
+                    <label for="current_password">Current Password</label>
+                    <input type="password" id="current_password" name="current_password" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="new_password">New Password</label>
+                    <input type="password" id="new_password" name="new_password" required minlength="6">
+                    <small>At least 6 characters</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="confirm_password">Confirm New Password</label>
+                    <input type="password" id="confirm_password" name="confirm_password" required>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-key"></i> Change Password
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- API Tokens -->
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-key"></i> API Tokens</h3>
+        </div>
+        <div class="card-body">
+            <p>Use API tokens to upload files programmatically.</p>
+            
+            <form method="POST" action="{{ url_for('create_api_token') }}" class="api-token-form">
+                <div class="form-group">
+                    <label for="token_name">Token Name</label>
+                    <input type="text" id="token_name" name="name" placeholder="My API Token" required>
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> Create Token
+                </button>
+            </form>
+            
+            {% if api_tokens %}
+            <div class="api-tokens-list">
+                <h4>Your Tokens</h4>
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Created</th>
+                            <th>Last Used</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for token in api_tokens %}
+                        <tr>
+                            <td>{{ token.name }}</td>
+                            <td>{{ token.created_at }}</td>
+                            <td>{{ token.last_used if token.last_used else 'Never' }}</td>
+                            <td>
+                                <form method="POST" action="{{ url_for('delete_api_token', token_id=token.id) }}" style="display: inline;">
+                                    <button type="submit" class="btn btn-icon danger" title="Delete"
+                                            onclick="return confirm('Delete this API token?')">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+            
+            <div class="api-docs">
+                <h4>API Usage</h4>
+                <p>Upload files using the API:</p>
+                <pre><code>curl -X POST \
+  -H "X-API-Token: YOUR_TOKEN" \
+  -F "file=@/path/to/file.jpg" \
+  {{ request.host_url }}api/upload</code></pre>
+                
+                <p>List files:</p>
+                <pre><code>curl -H "X-API-Token: YOUR_TOKEN" \
+  {{ request.host_url }}api/files</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.settings-container {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.settings-container > h1 {
+    margin-bottom: 30px;
+}
+
+.storage-info {
+    margin-bottom: 20px;
+}
+
+.storage-stats {
+    display: flex;
+    gap: 40px;
+    margin-bottom: 15px;
+}
+
+.stat {
+    display: flex;
+    flex-direction: column;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.stat-label {
+    font-size: 14px;
+    color: var(--text-muted);
+}
+
+.storage-bar {
+    height: 20px;
+    background: var(--border-color);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.storage-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary-color), var(--success-color));
+    border-radius: 10px;
+    transition: width 0.3s ease;
+}
+
+.api-token-form {
+    display: flex;
+    gap: 15px;
+    align-items: flex-end;
+    margin-bottom: 30px;
+}
+
+.api-token-form .form-group {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+.api-tokens-list {
+    margin: 30px 0;
+}
+
+.api-tokens-list h4 {
+    margin-bottom: 15px;
+}
+
+.api-docs {
+    background: var(--input-bg);
+    padding: 20px;
+    border-radius: 8px;
+    margin-top: 30px;
+}
+
+.api-docs h4 {
+    margin-bottom: 15px;
+}
+
+.api-docs p {
+    margin-bottom: 10px;
+    color: var(--text-muted);
+}
+
+.api-docs pre {
+    background: var(--card-bg);
+    padding: 15px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 13px;
+    margin-bottom: 20px;
+}
+
+.api-docs code {
+    color: var(--text-color);
+}
+</style>
+{% endblock %}

@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+{% block title %}Files - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <!-- Header with breadcrumbs and actions -->
+    <div class="dashboard-header">
+        <div class="breadcrumbs">
+            <a href="{{ url_for('index') }}"><i class="fas fa-home"></i> Home</a>
+            {% for crumb in breadcrumbs %}
+            <span class="separator">/</span>
+            <a href="{{ url_for('index', folder=crumb.id) }}">{{ crumb.name }}</a>
+            {% endfor %}
+        </div>
+        
+        <div class="header-actions">
+            <form method="GET" class="search-form">
+                <div class="search-box">
+                    <input type="text" name="search" value="{{ search }}" 
+                           placeholder="Search files...">
+                    <button type="submit"><i class="fas fa-search"></i></button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Quota display -->
+    <div class="quota-bar">
+        <div class="quota-info">
+            <span><i class="fas fa-database"></i> Storage: {{ format_size(user.used_space) }} / {{ format_size(user.quota) }}</span>
+        </div>
+        <div class="quota-progress">
+            <div class="quota-fill" style="width: {{ (user.used_space / user.quota * 100) if user.quota > 0 else 0 }}%"></div>
+        </div>
+    </div>
+
+    <!-- Actions bar -->
+    <div class="actions-bar">
+        <button class="btn btn-primary" onclick="document.getElementById('create-folder-modal').classList.add('active')">
+            <i class="fas fa-folder-plus"></i> New Folder
+        </button>
+        <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+            <i class="fas fa-upload"></i> Upload Files
+        </button>
+        <form id="upload-form" method="POST" action="{{ url_for('upload_file') }}" enctype="multipart/form-data" style="display: none;">
+            <input type="hidden" name="folder_id" value="{{ current_folder.id if current_folder else '' }}">
+            <input type="file" id="file-input" name="files" multiple onchange="this.form.submit()">
+        </form>
+    </div>
+
+    <!-- Drop zone -->
+    <div id="drop-zone" class="drop-zone">
+        <i class="fas fa-cloud-upload-alt"></i>
+        <p>Drop files here to upload</p>
+    </div>
+
+    <!-- Content grid -->
+    <div class="content-section">
+        {% if search %}
+        <h3><i class="fas fa-search"></i> Search Results for "{{ search }}"</h3>
+        {% endif %}
+
+        <!-- Folders -->
+        {% if folders %}
+        <div class="section-header">
+            <h3><i class="fas fa-folder"></i> Folders</h3>
+        </div>
+        <div class="file-grid">
+            {% for folder in folders %}
+            <div class="file-card folder-card" data-folder-id="{{ folder.id }}">
+                <div class="file-icon folder-icon">
+                    <i class="fas fa-folder"></i>
+                </div>
+                <div class="file-info">
+                    <a href="{{ url_for('index', folder=folder.id) }}" class="file-name">{{ folder.name }}</a>
+                </div>
+                <div class="file-actions">
+                    <button class="btn-icon" title="Share" onclick="window.location.href='{{ url_for('share_folder', folder_id=folder.id) }}'">
+                        <i class="fas fa-share-alt"></i>
+                    </button>
+                    <button class="btn-icon" title="Rename" onclick="openRenameModal('folder', {{ folder.id }}, '{{ folder.name }}')">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <form method="POST" action="{{ url_for('delete_folder', folder_id=folder.id) }}" style="display: inline;" 
+                          onsubmit="return confirm('Delete this folder and all its contents?')">
+                        <button type="submit" class="btn-icon danger" title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Files -->
+        {% if files %}
+        <div class="section-header">
+            <h3><i class="fas fa-file"></i> Files</h3>
+        </div>
+        <div class="file-grid">
+            {% for file in files %}
+            <div class="file-card" data-file-id="{{ file.id }}" draggable="true">
+                <div class="file-icon {{ get_file_type(file.mime_type) }}-icon">
+                    {% if get_file_type(file.mime_type) == 'image' %}
+                    <i class="fas fa-image"></i>
+                    {% elif get_file_type(file.mime_type) == 'video' %}
+                    <i class="fas fa-video"></i>
+                    {% elif get_file_type(file.mime_type) == 'audio' %}
+                    <i class="fas fa-music"></i>
+                    {% elif get_file_type(file.mime_type) == 'pdf' %}
+                    <i class="fas fa-file-pdf"></i>
+                    {% elif get_file_type(file.mime_type) == 'text' %}
+                    <i class="fas fa-file-alt"></i>
+                    {% else %}
+                    <i class="fas fa-file"></i>
+                    {% endif %}
+                </div>
+                <div class="file-info">
+                    <span class="file-name" title="{{ file.original_name }}">{{ file.original_name }}</span>
+                    <span class="file-size">{{ format_size(file.size) }}</span>
+                </div>
+                <div class="file-actions">
+                    {% if get_file_type(file.mime_type) in ['image', 'video', 'audio', 'pdf'] %}
+                    <a href="{{ url_for('preview_file', file_id=file.id) }}" class="btn-icon" title="Preview">
+                        <i class="fas fa-eye"></i>
+                    </a>
+                    {% endif %}
+                    <a href="{{ url_for('download_file', file_id=file.id) }}" class="btn-icon" title="Download">
+                        <i class="fas fa-download"></i>
+                    </a>
+                    <button class="btn-icon" title="Share" onclick="window.location.href='{{ url_for('share_file', file_id=file.id) }}'">
+                        <i class="fas fa-share-alt"></i>
+                    </button>
+                    <button class="btn-icon" title="Rename" onclick="openRenameModal('file', {{ file.id }}, '{{ file.original_name }}')">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <form method="POST" action="{{ url_for('delete_file', file_id=file.id) }}" style="display: inline;"
+                          onsubmit="return confirm('Delete this file?')">
+                        <button type="submit" class="btn-icon danger" title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if not folders and not files and not search %}
+        <div class="empty-state">
+            <i class="fas fa-folder-open"></i>
+            <h3>This folder is empty</h3>
+            <p>Upload files or create folders to get started</p>
+        </div>
+        {% elif search and not folders and not files %}
+        <div class="empty-state">
+            <i class="fas fa-search"></i>
+            <h3>No results found</h3>
+            <p>Try a different search term</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Shared with me section -->
+    {% if shared_files or shared_folders %}
+    <div class="content-section shared-section">
+        <h3><i class="fas fa-users"></i> Shared with me</h3>
+        
+        {% if shared_folders %}
+        <div class="file-grid">
+            {% for folder in shared_folders %}
+            <div class="file-card shared-card">
+                <div class="file-icon folder-icon">
+                    <i class="fas fa-folder"></i>
+                </div>
+                <div class="file-info">
+                    <span class="file-name">{{ folder.name }}</span>
+                    <span class="shared-by">Shared by {{ folder.owner_name }}</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        {% if shared_files %}
+        <div class="file-grid">
+            {% for file in shared_files %}
+            <div class="file-card shared-card">
+                <div class="file-icon">
+                    <i class="fas fa-file"></i>
+                </div>
+                <div class="file-info">
+                    <span class="file-name">{{ file.original_name }}</span>
+                    <span class="file-size">{{ format_size(file.size) }}</span>
+                    <span class="shared-by">Shared by {{ file.owner_name }}</span>
+                </div>
+                <div class="file-actions">
+                    <a href="{{ url_for('download_file', file_id=file.id) }}" class="btn-icon" title="Download">
+                        <i class="fas fa-download"></i>
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Create Folder Modal -->
+<div id="create-folder-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3><i class="fas fa-folder-plus"></i> Create New Folder</h3>
+            <button class="modal-close" onclick="document.getElementById('create-folder-modal').classList.remove('active')">&times;</button>
+        </div>
+        <form method="POST" action="{{ url_for('create_folder') }}">
+            <input type="hidden" name="parent_id" value="{{ current_folder.id if current_folder else '' }}">
+            <div class="form-group">
+                <label for="folder-name">Folder Name</label>
+                <input type="text" id="folder-name" name="name" required placeholder="Enter folder name">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" 
+                        onclick="document.getElementById('create-folder-modal').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Rename Modal -->
+<div id="rename-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3><i class="fas fa-edit"></i> Rename</h3>
+            <button class="modal-close" onclick="document.getElementById('rename-modal').classList.remove('active')">&times;</button>
+        </div>
+        <form id="rename-form" method="POST">
+            <div class="form-group">
+                <label for="rename-input">New Name</label>
+                <input type="text" id="rename-input" name="name" required>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" 
+                        onclick="document.getElementById('rename-modal').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Rename</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Drag and drop upload
+const dropZone = document.getElementById('drop-zone');
+const uploadForm = document.getElementById('upload-form');
+const fileInput = document.getElementById('file-input');
+
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    document.body.addEventListener(eventName, preventDefaults, false);
+});
+
+function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+['dragenter', 'dragover'].forEach(eventName => {
+    document.body.addEventListener(eventName, () => {
+        dropZone.classList.add('active');
+    }, false);
+});
+
+['dragleave', 'drop'].forEach(eventName => {
+    document.body.addEventListener(eventName, () => {
+        dropZone.classList.remove('active');
+    }, false);
+});
+
+document.body.addEventListener('drop', (e) => {
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        fileInput.files = files;
+        uploadForm.submit();
+    }
+}, false);
+
+// Rename modal
+function openRenameModal(type, id, currentName) {
+    const modal = document.getElementById('rename-modal');
+    const form = document.getElementById('rename-form');
+    const input = document.getElementById('rename-input');
+    
+    if (type === 'file') {
+        form.action = `/file/${id}/rename`;
+    } else {
+        form.action = `/folder/${id}/rename`;
+    }
+    
+    input.value = currentName;
+    modal.classList.add('active');
+    input.focus();
+    input.select();
+}
+
+// Close modals on escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal.active').forEach(modal => {
+            modal.classList.remove('active');
+        });
+    }
+});
+
+// Close modals on backdrop click
+document.querySelectorAll('.modal').forEach(modal => {
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.classList.remove('active');
+        }
+    });
+});
+</script>
+{% endblock %}
