@@ -434,11 +434,23 @@ function showToastGlobal(type, message) {
     else if (type === 'error') icon = 'fa-exclamation-circle';
     else if (type === 'warning') icon = 'fa-exclamation-triangle';
     
-    toast.innerHTML = `
-        <i class="fas ${icon}"></i>
-        <span>${message}</span>
-        <button class="toast-close" onclick="this.parentElement.remove()">&times;</button>
-    `;
+    // Create toast elements programmatically to avoid inline handlers
+    const iconEl = document.createElement('i');
+    iconEl.className = `fas ${icon}`;
+    
+    const messageEl = document.createElement('span');
+    messageEl.textContent = message;
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'toast-close';
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', function() {
+        this.parentElement.remove();
+    });
+    
+    toast.appendChild(iconEl);
+    toast.appendChild(messageEl);
+    toast.appendChild(closeBtn);
     
     container.appendChild(toast);
     

@@ -249,8 +249,12 @@ document.getElementById('create-link-form').addEventListener('submit', function(
             submitBtn.disabled = false;
             submitBtn.innerHTML = originalBtnHtml;
         } else {
-            // Error occurred
-            alert(data.error || 'Failed to create share link');
+            // Error occurred - show toast notification instead of alert
+            if (window.showToastGlobal) {
+                window.showToastGlobal('error', data.error || 'Failed to create share link');
+            } else {
+                console.error('Share link error:', data.error || 'Failed to create share link');
+            }
             submitBtn.disabled = false;
             submitBtn.innerHTML = originalBtnHtml;
         }

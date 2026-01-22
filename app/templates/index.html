@@ -412,8 +412,9 @@ async function traverseFileTree(item, path, files, relativePaths) {
                 files.push(file);
                 relativePaths.push(path + file.name);
                 resolve();
-            }, () => {
-                // Handle error reading file
+            }, (error) => {
+                // Log error reading file but continue with other files
+                console.warn('Error reading file:', path + item.name, error);
                 resolve();
             });
         } else if (item.isDirectory) {
@@ -433,8 +434,9 @@ async function traverseFileTree(item, path, files, relativePaths) {
                         }
                         resolve();
                     }
-                }, () => {
-                    // Handle error reading directory
+                }, (error) => {
+                    // Log error reading directory but continue
+                    console.warn('Error reading directory:', path + item.name, error);
                     resolve();
                 });
             };
@@ -897,7 +899,7 @@ window.deleteSelected = function() {
                 })
                 .catch(error => {
                     console.error('Error deleting items:', error);
-                    alert('An error occurred while deleting items. Please refresh the page.');
+                    showToast('error', window.i18n ? window.i18n.t('upload.error') : 'An error occurred while deleting items. Please refresh the page.');
                     window.location.reload();
                 });
         };
