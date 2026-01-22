@@ -10,7 +10,12 @@ A lightweight, secure web file storage server built with Python and Flask.
 - **Authentication**: Email/password and Google OAuth2.0 login
 - **Modern UI**: Clean black & white design with dark mode support
 - **File Search**: Search files and folders by name
-- **Drag & Drop**: Upload files by dragging and dropping
+- **Drag & Drop**: Upload files and folders by dragging and dropping
+- **Folder Upload/Download**: Upload entire folders with structure preserved, download folders as ZIP archives
+- **Upload Progress**: Real-time upload progress indicator with percentage and size
+- **Toast Notifications**: Non-intrusive popup notifications in bottom-left corner
+- **Thumbnail Preview**: Visual thumbnails for images and videos in file list
+- **Storage Indicator**: Compact storage usage display in footer
 - **Media Player**: Built-in preview for images, videos, audio, and PDFs
 - **API Access**: RESTful API for programmatic file uploads
 - **Folder Management**: Create, rename, and organize folders
@@ -134,7 +139,11 @@ The application features a clean, modern interface with:
 - Light and dark theme support
 - Responsive design for mobile devices
 - Icon-based visual elements
-- Drag-and-drop file uploads
+- Drag-and-drop file and folder uploads
+- Visual thumbnails for images and videos
+- Real-time upload progress indicator
+- Toast notifications for upload status
+- Storage usage indicator in footer
 
 ## License
 

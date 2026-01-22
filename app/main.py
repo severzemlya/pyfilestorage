@@ -891,6 +891,220 @@ def upload_file():
     return redirect(url_for('index', folder=folder_id))
 
 
+@app.route('/upload/ajax', methods=['POST'])
+@login_required
+def upload_file_ajax():
+    """Upload files with AJAX support and folder structure preservation."""
+    folder_id = request.form.get('folder_id', type=int)
+    relative_paths = request.form.getlist('relative_paths')
+
+    if 'files' not in request.files:
+        return jsonify({'success': False, 'error': 'No files selected'}), 400
+
+    files = request.files.getlist('files')
+    db = get_db()
+    user_id = session['user_id']
+
+    uploaded = 0
+    errors = []
+
+    # Create folder mapping for nested folder uploads
+    folder_cache = {None: folder_id}  # Map relative folder path to folder ID
+
+    def get_or_create_folder(relative_path):
+        """Get or create nested folders based on relative path."""
+        if not relative_path or '/' not in relative_path:
+            return folder_id
+
+        folder_path = '/'.join(relative_path.split('/')[:-1])
+        if folder_path in folder_cache:
+            return folder_cache[folder_path]
+
+        # Create nested folders
+        parts = folder_path.split('/')
+        current_parent = folder_id
+
+        for i, part in enumerate(parts):
+            partial_path = '/'.join(parts[:i + 1])
+            if partial_path in folder_cache:
+                current_parent = folder_cache[partial_path]
+                continue
+
+            # Check if folder exists
+            existing = db.execute('''
+                SELECT id FROM folders WHERE name = ? AND owner_id = ? AND parent_id IS ?
+            ''', (part, user_id, current_parent)).fetchone()
+
+            if existing:
+                current_parent = existing['id']
+            else:
+                # Create folder
+                db.execute('INSERT INTO folders (name, parent_id, owner_id) VALUES (?, ?, ?)',
+                           (part, current_parent, user_id))
+                db.commit()
+                current_parent = db.execute('SELECT last_insert_rowid()').fetchone()[0]
+
+            folder_cache[partial_path] = current_parent
+
+        return current_parent
+
+    for i, file in enumerate(files):
+        if file.filename:
+            relative_path = relative_paths[i] if i < len(relative_paths) else file.filename
+            original_name = secure_filename(Path(relative_path).name)
+
+            # Determine target folder
+            target_folder_id = get_or_create_folder(relative_path)
+
+            # Check file extension
+            if not is_safe_filename(original_name):
+                errors.append(f'File type not allowed: {original_name}')
+                continue
+
+            # Read file to check size
+            file_data = file.read()
+            file_size = len(file_data)
+
+            try:
+                encrypted_data = encrypt_for_user(file_data, user_id, session.get('email'))
+            except Exception as exc:
+                errors.append(f'Encryption failed for {original_name}')
+                continue
+
+            stored_size = len(encrypted_data)
+
+            # Check quota (use stored size)
+            can_upload, error = check_quota(user_id, stored_size)
+            if not can_upload:
+                errors.append(f'{error}: {original_name}')
+                continue
+
+            # Generate random stored name
+            stored_name = generate_stored_name(original_name)
+            mime_type = mimetypes.guess_type(original_name)[0]
+
+            # Save encrypted file
+            file_path = UPLOAD_FOLDER / stored_name
+            file_path.write_bytes(encrypted_data)
+
+            # Save to database
+            db.execute('''
+                INSERT INTO files (original_name, stored_name, mime_type, size, stored_size, folder_id, owner_id, is_encrypted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (original_name, stored_name, mime_type, file_size, stored_size, target_folder_id, user_id, 1))
+
+            # Update user space
+            update_user_space(user_id, stored_size)
+            uploaded += 1
+
+    db.commit()
+
+    return jsonify({
+        'success': True,
+        'count': uploaded,
+        'errors': errors if errors else None
+    })
+
+
+@app.route('/file/<int:file_id>/thumbnail')
+@login_required
+def get_thumbnail(file_id):
+    """Get thumbnail for image/video files."""
+    db = get_db()
+    user_id = session['user_id']
+
+    file = db.execute('''
+        SELECT f.* FROM files f
+        WHERE f.id = ? AND (
+            f.owner_id = ?
+            OR EXISTS (SELECT 1 FROM user_shares us WHERE us.file_id = f.id AND us.shared_with_id = ?)
+        )
+    ''', (file_id, user_id, user_id)).fetchone()
+
+    if not file:
+        abort(404)
+
+    file_type = get_file_type(file['mime_type'])
+    if file_type not in ['image', 'video']:
+        abort(404)
+
+    file_path = UPLOAD_FOLDER / file['stored_name']
+    if not file_path.exists():
+        abort(404)
+
+    try:
+        data = load_file_bytes(file)
+    except Exception:
+        abort(404)
+
+    # For images, return the image directly (browser will handle resizing)
+    # For videos, return a placeholder or first frame if possible
+    if file_type == 'image':
+        return send_file(io.BytesIO(data), mimetype=file['mime_type'])
+    else:
+        # For video, return a generic video icon placeholder
+        # In production, you might want to generate actual video thumbnails
+        return send_file(io.BytesIO(data), mimetype=file['mime_type'])
+
+
+@app.route('/folder/<int:folder_id>/download')
+@login_required
+def download_folder(folder_id):
+    """Download folder as ZIP archive."""
+    import zipfile
+
+    db = get_db()
+    user_id = session['user_id']
+
+    folder = db.execute(
+        'SELECT * FROM folders WHERE id = ? AND owner_id = ?',
+        (folder_id, user_id)
+    ).fetchone()
+
+    if not folder:
+        flash('Folder not found.', 'error')
+        return redirect(url_for('index'))
+
+    # Create in-memory ZIP file
+    zip_buffer = io.BytesIO()
+
+    def add_folder_to_zip(zip_file, fid, path=''):
+        """Recursively add folder contents to ZIP."""
+        # Get files in folder
+        files = db.execute(
+            'SELECT * FROM files WHERE folder_id = ? AND owner_id = ?',
+            (fid, user_id)
+        ).fetchall()
+
+        for file in files:
+            try:
+                data = load_file_bytes(file)
+                file_path = path + file['original_name']
+                zip_file.writestr(file_path, data)
+            except Exception:
+                continue
+
+        # Get subfolders
+        subfolders = db.execute(
+            'SELECT * FROM folders WHERE parent_id = ? AND owner_id = ?',
+            (fid, user_id)
+        ).fetchall()
+
+        for subfolder in subfolders:
+            add_folder_to_zip(zip_file, subfolder['id'], path + subfolder['name'] + '/')
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        add_folder_to_zip(zip_file, folder_id, folder['name'] + '/')
+
+    zip_buffer.seek(0)
+    return send_file(
+        zip_buffer,
+        as_attachment=True,
+        download_name=f"{folder['name']}.zip",
+        mimetype='application/zip'
+    )
+
+
 @app.route('/file/<int:file_id>/download')
 @login_required
 def download_file(file_id):

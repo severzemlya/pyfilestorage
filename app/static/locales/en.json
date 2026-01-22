@@ -10,6 +10,7 @@
     "storage": "Storage",
     "new_folder": "New Folder",
     "upload_files": "Upload Files",
+    "upload_folder": "Upload Folder",
     "drop_files_here": "Drop files here to upload",
     "folders": "Folders",
     "files": "Files",
@@ -64,5 +65,12 @@
     "select": "Language",
     "english": "English",
     "japanese": "日本語"
+  },
+  "upload": {
+    "uploading": "Uploading...",
+    "success": "Files uploaded successfully",
+    "failed": "Upload failed",
+    "error": "Upload error",
+    "multiple_files": "Multiple files"
   }
 }
