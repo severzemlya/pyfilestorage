@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Share {% if file %}{{ file.original_name }}{% else %}{{ folder.name }}{% endif %} - {{ app_name }}{% endblock %}
+{% block og_title %}Share {% if file %}{{ file.original_name }}{% else %}{{ folder.name }}{% endif %} - {{ app_name }}{% endblock %}
+{% block og_description %}Manage sharing settings for {% if file %}{{ file.original_name }}{% else %}{{ folder.name }}{% endif %} on {{ app_name }}{% endblock %}
+{% block twitter_title %}Share {% if file %}{{ file.original_name }}{% else %}{{ folder.name }}{% endif %} - {{ app_name }}{% endblock %}
+{% block twitter_description %}Manage sharing settings for {% if file %}{{ file.original_name }}{% else %}{{ folder.name }}{% endif %} on {{ app_name }}{% endblock %}
 
 {% block content %}
 <div class="share-container">

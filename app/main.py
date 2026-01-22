@@ -33,14 +33,18 @@ load_dotenv()
 
 # Configuration
 BASE_DIR = Path(__file__).parent.absolute()
-UPLOAD_FOLDER = BASE_DIR / 'uploads'
-DATABASE = BASE_DIR / 'storage.db'
 SETTINGS_FILE = BASE_DIR / 'settings.json'
 
 
 def load_settings():
     """Load settings from settings.json file."""
     default_settings = {
+        'app_name': 'PyFileStorage',
+        'site_url': 'http://localhost:5000',
+        'site_description': 'A lightweight, secure web file storage server',
+        'og_image': '/static/og-image.png',
+        'upload_folder': 'uploads',
+        'database_path': 'storage.db',
         'max_file_size': 100 * 1024 * 1024,  # 100MB default
         'default_quota': 1024 * 1024 * 1024,  # 1GB per user default
         'system_quota': 10 * 1024 * 1024 * 1024,  # 10GB system default
@@ -69,6 +73,18 @@ def load_settings():
 
 # Load settings from JSON file
 APP_SETTINGS = load_settings()
+
+# Path settings (derived from settings or defaults)
+UPLOAD_FOLDER = BASE_DIR / APP_SETTINGS.get('upload_folder', 'uploads')
+DATABASE = BASE_DIR / APP_SETTINGS.get('database_path', 'storage.db')
+
+# Site settings
+APP_NAME = APP_SETTINGS.get('app_name', 'PyFileStorage')
+SITE_URL = APP_SETTINGS.get('site_url', 'http://localhost:5000')
+SITE_DESCRIPTION = APP_SETTINGS.get('site_description', 'A lightweight, secure web file storage server')
+OG_IMAGE = APP_SETTINGS.get('og_image', '/static/og-image.png')
+
+# Quota settings
 MAX_FILE_SIZE = APP_SETTINGS.get('max_file_size', 100 * 1024 * 1024)
 DEFAULT_QUOTA = APP_SETTINGS.get('default_quota', 1024 * 1024 * 1024)
 SYSTEM_QUOTA = APP_SETTINGS.get('system_quota', 10 * 1024 * 1024 * 1024)
@@ -2075,7 +2091,10 @@ def inject_globals():
     """Inject global variables into templates."""
     return {
         'current_year': datetime.now().year,
-        'app_name': 'PyFileStorage'
+        'app_name': APP_NAME,
+        'site_url': SITE_URL,
+        'site_description': SITE_DESCRIPTION,
+        'og_image': OG_IMAGE
     }
 
 
