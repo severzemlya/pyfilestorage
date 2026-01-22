@@ -1,0 +1,13 @@
+{
+    "max_file_size": 104857600,
+    "default_quota": 1073741824,
+    "system_quota": 10737418240,
+    "blocked_extensions": [
+        ".exe", ".php", ".phtml", ".php3", ".php4", ".php5",
+        ".phps", ".cgi", ".pl", ".py", ".pyc", ".pyo", ".jsp",
+        ".jspx", ".asp", ".aspx", ".sh", ".bash", ".bat", ".cmd",
+        ".com", ".vbs", ".vbe", ".js", ".jse", ".ws", ".wsf",
+        ".msc", ".msi", ".msp", ".scr", ".hta", ".cpl", ".jar",
+        ".dll", ".sys", ".drv"
+    ]
+}

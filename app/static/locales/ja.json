@@ -38,7 +38,8 @@
     "rename": "名前を変更",
     "delete": "削除",
     "cancel": "キャンセル",
-    "create": "作成"
+    "create": "作成",
+    "close": "閉じる"
   },
   "modals": {
     "create_folder": "新規フォルダを作成",
@@ -59,7 +60,8 @@
   "confirm": {
     "delete_folder": "このフォルダとその内容をすべて削除しますか？",
     "delete_file": "このファイルを削除しますか？",
-    "delete_selected": "選択した項目を削除しますか？"
+    "delete_selected": "選択した項目を削除しますか？",
+    "delete_title": "削除の確認"
   },
   "language": {
     "select": "言語",
@@ -71,6 +73,13 @@
     "success": "ファイルのアップロードが完了しました",
     "failed": "アップロードに失敗しました",
     "error": "アップロードエラー",
-    "multiple_files": "複数ファイル"
+    "multiple_files": "複数ファイル",
+    "estimating": "推定中...",
+    "remaining_time": "残り時間:",
+    "calculating": "計算中..."
+  },
+  "share": {
+    "link_created": "共有リンクが作成されました",
+    "link_copied": "リンクがクリップボードにコピーされました！"
   }
 }

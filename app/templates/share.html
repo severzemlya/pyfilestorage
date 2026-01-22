@@ -21,7 +21,7 @@
                 <h3><i class="fas fa-link"></i> Create Share Link</h3>
             </div>
             <div class="card-body">
-                <form method="POST">
+                <form method="POST" id="create-link-form">
                     <input type="hidden" name="share_type" value="link">
                     
                     <div class="form-group">
@@ -217,6 +217,50 @@ function showCopyFeedback(input) {
         btn.innerHTML = originalHtml;
     }, 2000);
 }
+
+// Handle share link form submission with AJAX to show floating modal
+document.getElementById('create-link-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const submitBtn = this.querySelector('button[type="submit"]');
+    const originalBtnHtml = submitBtn.innerHTML;
+    
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+    
+    fetch(window.location.href, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.share_url) {
+            // Show the floating modal with the new link
+            if (window.showShareLinkModal) {
+                window.showShareLinkModal(data.share_url);
+            }
+            
+            // Reload the page to show updated list after a short delay
+            setTimeout(() => {
+                window.location.reload();
+            }, 500);
+        } else {
+            // Error occurred
+            alert(data.error || 'Failed to create share link');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalBtnHtml;
+        }
+    })
+    .catch(error => {
+        console.error('Error creating share link:', error);
+        // Fallback: submit form normally
+        this.submit();
+    });
+});
 </script>
 {% endblock %}
 
