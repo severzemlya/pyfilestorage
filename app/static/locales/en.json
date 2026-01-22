@@ -38,7 +38,8 @@
     "rename": "Rename",
     "delete": "Delete",
     "cancel": "Cancel",
-    "create": "Create"
+    "create": "Create",
+    "close": "Close"
   },
   "modals": {
     "create_folder": "Create New Folder",
@@ -59,7 +60,8 @@
   "confirm": {
     "delete_folder": "Delete this folder and all its contents?",
     "delete_file": "Delete this file?",
-    "delete_selected": "Delete selected items?"
+    "delete_selected": "Delete selected items?",
+    "delete_title": "Confirm Delete"
   },
   "language": {
     "select": "Language",
@@ -71,6 +73,13 @@
     "success": "Files uploaded successfully",
     "failed": "Upload failed",
     "error": "Upload error",
-    "multiple_files": "Multiple files"
+    "multiple_files": "Multiple files",
+    "estimating": "Estimating...",
+    "remaining_time": "Remaining:",
+    "calculating": "Calculating..."
+  },
+  "share": {
+    "link_created": "Share Link Created",
+    "link_copied": "Link has been copied to clipboard!"
   }
 }

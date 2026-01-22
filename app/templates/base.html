@@ -4,6 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{{ app_name }}{% endblock %}</title>
+    <!-- Apply theme immediately to prevent flash -->
+    <script>
+        (function() {
+            var saved = localStorage.getItem('theme');
+            var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     {% block extra_css %}{% endblock %}
@@ -89,6 +97,48 @@
             <div class="upload-progress-percent">
                 <span id="upload-progress-percent">0%</span>
                 <span id="upload-progress-size"></span>
+            </div>
+            <div class="upload-progress-eta">
+                <span id="upload-eta" data-i18n="upload.estimating">Estimating...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Share link modal -->
+    <div id="share-link-modal" class="modal">
+        <div class="modal-content share-link-modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-link"></i> <span data-i18n="share.link_created">Share Link Created</span></h3>
+                <button class="modal-close" onclick="closeShareLinkModal()">&times;</button>
+            </div>
+            <div class="modal-body share-link-modal-body">
+                <p data-i18n="share.link_copied">Link has been copied to clipboard!</p>
+                <div class="share-link-display">
+                    <input type="text" id="share-link-input" readonly>
+                    <button class="btn btn-primary" onclick="copyShareLinkAgain()">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeShareLinkModal()" data-i18n="actions.close">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete confirmation modal -->
+    <div id="delete-confirm-modal" class="modal">
+        <div class="modal-content delete-confirm-modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-exclamation-triangle" style="color: var(--error-color);"></i> <span data-i18n="confirm.delete_title">Confirm Delete</span></h3>
+                <button class="modal-close" onclick="closeDeleteConfirmModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="delete-confirm-message"></p>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeDeleteConfirmModal()" data-i18n="actions.cancel">Cancel</button>
+                <button type="button" class="btn btn-danger" id="delete-confirm-btn" data-i18n="actions.delete">Delete</button>
             </div>
         </div>
     </div>

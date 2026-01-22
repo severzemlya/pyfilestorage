@@ -6,6 +6,7 @@ A lightweight, secure file storage solution with user management, sharing, and m
 import base64
 import hashlib
 import io
+import json
 import mimetypes
 import os
 import re
@@ -34,21 +35,58 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent.absolute()
 UPLOAD_FOLDER = BASE_DIR / 'uploads'
 DATABASE = BASE_DIR / 'storage.db'
-MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB default
-DEFAULT_QUOTA = 1024 * 1024 * 1024  # 1GB per user default
-SYSTEM_QUOTA = 10 * 1024 * 1024 * 1024  # 10GB system default
+SETTINGS_FILE = BASE_DIR / 'settings.json'
 
-# Blocked file extensions for security
-BLOCKED_EXTENSIONS = {'.exe', '.php', '.phtml', '.php3', '.php4', '.php5',
-                       '.phps', '.cgi', '.pl', '.py', '.pyc', '.pyo', '.jsp',
-                       '.jspx', '.asp', '.aspx', '.sh', '.bash', '.bat', '.cmd',
-                       '.com', '.vbs', '.vbe', '.js', '.jse', '.ws', '.wsf',
-                       '.msc', '.msi', '.msp', '.scr', '.hta', '.cpl', '.jar',
-                       '.dll', '.sys', '.drv'}
+
+def load_settings():
+    """Load settings from settings.json file."""
+    default_settings = {
+        'max_file_size': 100 * 1024 * 1024,  # 100MB default
+        'default_quota': 1024 * 1024 * 1024,  # 1GB per user default
+        'system_quota': 10 * 1024 * 1024 * 1024,  # 10GB system default
+        'blocked_extensions': [
+            '.exe', '.php', '.phtml', '.php3', '.php4', '.php5',
+            '.phps', '.cgi', '.pl', '.py', '.pyc', '.pyo', '.jsp',
+            '.jspx', '.asp', '.aspx', '.sh', '.bash', '.bat', '.cmd',
+            '.com', '.vbs', '.vbe', '.js', '.jse', '.ws', '.wsf',
+            '.msc', '.msi', '.msp', '.scr', '.hta', '.cpl', '.jar',
+            '.dll', '.sys', '.drv'
+        ]
+    }
+    try:
+        if SETTINGS_FILE.exists():
+            with open(SETTINGS_FILE, 'r') as f:
+                settings = json.load(f)
+                # Merge with defaults (keeping user settings)
+                for key, value in default_settings.items():
+                    if key not in settings:
+                        settings[key] = value
+                return settings
+    except (json.JSONDecodeError, IOError) as e:
+        print(f'Warning: Could not load settings.json: {e}')
+    return default_settings
+
+
+# Load settings from JSON file
+APP_SETTINGS = load_settings()
+MAX_FILE_SIZE = APP_SETTINGS.get('max_file_size', 100 * 1024 * 1024)
+DEFAULT_QUOTA = APP_SETTINGS.get('default_quota', 1024 * 1024 * 1024)
+SYSTEM_QUOTA = APP_SETTINGS.get('system_quota', 10 * 1024 * 1024 * 1024)
+
+# Blocked file extensions for security (loaded from settings)
+BLOCKED_EXTENSIONS = set(APP_SETTINGS.get('blocked_extensions', [
+    '.exe', '.php', '.phtml', '.php3', '.php4', '.php5',
+    '.phps', '.cgi', '.pl', '.py', '.pyc', '.pyo', '.jsp',
+    '.jspx', '.asp', '.aspx', '.sh', '.bash', '.bat', '.cmd',
+    '.com', '.vbs', '.vbe', '.js', '.jse', '.ws', '.wsf',
+    '.msc', '.msi', '.msp', '.scr', '.hta', '.cpl', '.jar',
+    '.dll', '.sys', '.drv'
+]))
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
-app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
+# Set MAX_CONTENT_LENGTH to None if max_file_size is 0 or null (unlimited)
+app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE if MAX_FILE_SIZE else None
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
@@ -1332,6 +1370,8 @@ def share_file(file_id):
     ).fetchone()
 
     if not file:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'error': 'File not found'}), 404
         flash('File not found.', 'error')
         return redirect(url_for('index'))
 
@@ -1359,6 +1399,11 @@ def share_file(file_id):
             db.commit()
 
             share_url = url_for('access_share_link', token=token, _external=True)
+            
+            # Return JSON for AJAX requests
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'success': True, 'share_url': share_url})
+            
             flash(f'Share link created: {share_url}', 'success')
 
         elif share_type == 'user':
@@ -1421,6 +1466,8 @@ def share_folder(folder_id):
     ).fetchone()
 
     if not folder:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'error': 'Folder not found'}), 404
         flash('Folder not found.', 'error')
         return redirect(url_for('index'))
 
@@ -1447,6 +1494,11 @@ def share_folder(folder_id):
             db.commit()
 
             share_url = url_for('access_share_link', token=token, _external=True)
+            
+            # Return JSON for AJAX requests
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'success': True, 'share_url': share_url})
+            
             flash(f'Share link created: {share_url}', 'success')
 
         elif share_type == 'user':

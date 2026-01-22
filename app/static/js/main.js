@@ -363,4 +363,145 @@ if ('serviceWorker' in navigator) {
     });
 }
 
+// ==================== Share Link Modal ====================
+function showShareLinkModal(url) {
+    const modal = document.getElementById('share-link-modal');
+    const input = document.getElementById('share-link-input');
+    
+    if (modal && input) {
+        input.value = url;
+        modal.classList.add('active');
+        
+        // Auto-copy to clipboard
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).catch(() => {
+                // Fallback: select the text
+                input.select();
+            });
+        } else {
+            input.select();
+            try {
+                document.execCommand('copy');
+            } catch (e) {
+                // Copy not supported
+            }
+        }
+    }
+}
+
+function closeShareLinkModal() {
+    const modal = document.getElementById('share-link-modal');
+    if (modal) {
+        modal.classList.remove('active');
+        // Reload the page to show the updated share link list
+        // Only reload if on a share page
+        if (window.location.pathname.includes('/share/')) {
+            window.location.reload();
+        }
+    }
+}
+
+function copyShareLinkAgain() {
+    const input = document.getElementById('share-link-input');
+    if (input) {
+        const url = input.value;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(() => {
+                showToastGlobal('success', window.i18n ? window.i18n.t('share.link_copied') : 'Link copied to clipboard!');
+            }).catch(() => {
+                input.select();
+                document.execCommand('copy');
+                showToastGlobal('success', window.i18n ? window.i18n.t('share.link_copied') : 'Link copied to clipboard!');
+            });
+        } else {
+            input.select();
+            document.execCommand('copy');
+            showToastGlobal('success', window.i18n ? window.i18n.t('share.link_copied') : 'Link copied to clipboard!');
+        }
+    }
+}
+
+// Global toast function (for use from main.js)
+function showToastGlobal(type, message) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    
+    let icon = 'fa-info-circle';
+    if (type === 'success') icon = 'fa-check-circle';
+    else if (type === 'error') icon = 'fa-exclamation-circle';
+    else if (type === 'warning') icon = 'fa-exclamation-triangle';
+    
+    // Create toast elements programmatically to avoid inline handlers
+    const iconEl = document.createElement('i');
+    iconEl.className = `fas ${icon}`;
+    
+    const messageEl = document.createElement('span');
+    messageEl.textContent = message;
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'toast-close';
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', function() {
+        this.parentElement.remove();
+    });
+    
+    toast.appendChild(iconEl);
+    toast.appendChild(messageEl);
+    toast.appendChild(closeBtn);
+    
+    container.appendChild(toast);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        toast.classList.add('toast-fadeout');
+        setTimeout(() => toast.remove(), 300);
+    }, 5000);
+}
+
+// ==================== Delete Confirmation Modal ====================
+let pendingDeleteForm = null;
+
+function showDeleteConfirmModal(message, form) {
+    const modal = document.getElementById('delete-confirm-modal');
+    const messageEl = document.getElementById('delete-confirm-message');
+    const confirmBtn = document.getElementById('delete-confirm-btn');
+    
+    if (modal && messageEl && confirmBtn) {
+        messageEl.textContent = message;
+        pendingDeleteForm = form;
+        modal.classList.add('active');
+        
+        // Remove previous event listener and add new one
+        const newConfirmBtn = confirmBtn.cloneNode(true);
+        confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+        newConfirmBtn.addEventListener('click', confirmDelete);
+    }
+}
+
+function closeDeleteConfirmModal() {
+    const modal = document.getElementById('delete-confirm-modal');
+    if (modal) {
+        modal.classList.remove('active');
+        pendingDeleteForm = null;
+    }
+}
+
+function confirmDelete() {
+    if (pendingDeleteForm) {
+        pendingDeleteForm.submit();
+    }
+    closeDeleteConfirmModal();
+}
+
+// Make functions globally available
+window.showShareLinkModal = showShareLinkModal;
+window.closeShareLinkModal = closeShareLinkModal;
+window.copyShareLinkAgain = copyShareLinkAgain;
+window.showDeleteConfirmModal = showDeleteConfirmModal;
+window.closeDeleteConfirmModal = closeDeleteConfirmModal;
+window.confirmDelete = confirmDelete;
+
 console.log('PyFileStorage initialized');

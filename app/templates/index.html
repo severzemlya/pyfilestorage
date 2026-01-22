@@ -404,6 +404,7 @@ document.body.addEventListener('drop', async (e) => {
 }, false);
 
 // Traverse file tree for directory upload
+// Note: readEntries may return only partial results, so we must call it repeatedly
 async function traverseFileTree(item, path, files, relativePaths) {
     return new Promise((resolve) => {
         if (item.isFile) {
@@ -411,15 +412,35 @@ async function traverseFileTree(item, path, files, relativePaths) {
                 files.push(file);
                 relativePaths.push(path + file.name);
                 resolve();
+            }, (error) => {
+                // Log error reading file but continue with other files
+                console.warn('Error reading file:', path + item.name, error);
+                resolve();
             });
         } else if (item.isDirectory) {
             const dirReader = item.createReader();
-            dirReader.readEntries(async (entries) => {
-                for (const entry of entries) {
-                    await traverseFileTree(entry, path + item.name + '/', files, relativePaths);
-                }
-                resolve();
-            });
+            const allEntries = [];
+            
+            // readEntries may return partial results; must call repeatedly until empty
+            const readAllEntries = () => {
+                dirReader.readEntries(async (entries) => {
+                    if (entries.length > 0) {
+                        allEntries.push(...entries);
+                        readAllEntries(); // Read more entries
+                    } else {
+                        // All entries have been read
+                        for (const entry of allEntries) {
+                            await traverseFileTree(entry, path + item.name + '/', files, relativePaths);
+                        }
+                        resolve();
+                    }
+                }, (error) => {
+                    // Log error reading directory but continue
+                    console.warn('Error reading directory:', path + item.name, error);
+                    resolve();
+                });
+            };
+            readAllEntries();
         } else {
             resolve();
         }
@@ -444,6 +465,25 @@ folderInput.addEventListener('change', () => {
     }
 });
 
+// Format time duration for ETA
+function formatDuration(seconds) {
+    if (!isFinite(seconds) || seconds <= 0) {
+        return window.i18n ? window.i18n.t('upload.calculating') : 'Calculating...';
+    }
+    
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    if (hours > 0) {
+        return `${hours}h ${minutes}m ${secs}s`;
+    } else if (minutes > 0) {
+        return `${minutes}m ${secs}s`;
+    } else {
+        return `${secs}s`;
+    }
+}
+
 // Upload files with progress display
 function uploadFilesWithProgress(files, relativePaths) {
     if (files.length === 0) return;
@@ -454,14 +494,22 @@ function uploadFilesWithProgress(files, relativePaths) {
     const progressSize = document.getElementById('upload-progress-size');
     const fileNameSpan = document.getElementById('upload-file-name');
     const fileCountSpan = document.getElementById('upload-file-count');
+    const etaSpan = document.getElementById('upload-eta');
     
     const totalSize = files.reduce((sum, f) => sum + f.size, 0);
     let uploadedSize = 0;
     let completedCount = 0;
+    let uploadStartTime = Date.now();
+    let lastLoaded = 0;
+    let lastTime = uploadStartTime;
+    let speedSamples = [];
     
     // Show progress modal
     progressModal.classList.add('active');
     fileCountSpan.textContent = `(0/${files.length})`;
+    if (etaSpan) {
+        etaSpan.textContent = window.i18n ? window.i18n.t('upload.estimating') : 'Estimating...';
+    }
     
     const formData = new FormData();
     formData.append('folder_id', currentFolderId);
@@ -479,6 +527,34 @@ function uploadFilesWithProgress(files, relativePaths) {
             progressBar.style.width = percent + '%';
             progressPercent.textContent = percent + '%';
             progressSize.textContent = formatFileSize(e.loaded) + ' / ' + formatFileSize(e.total);
+            
+            // Calculate ETA
+            const currentTime = Date.now();
+            const timeDiff = (currentTime - lastTime) / 1000; // seconds
+            const bytesDiff = e.loaded - lastLoaded;
+            
+            if (timeDiff >= 0.5 && bytesDiff > 0) { // Update every 0.5 seconds
+                const currentSpeed = bytesDiff / timeDiff; // bytes per second
+                speedSamples.push(currentSpeed);
+                
+                // Keep only last 5 samples for smoothing
+                if (speedSamples.length > 5) {
+                    speedSamples.shift();
+                }
+                
+                // Calculate average speed
+                const avgSpeed = speedSamples.reduce((a, b) => a + b, 0) / speedSamples.length;
+                const remainingBytes = e.total - e.loaded;
+                const eta = remainingBytes / avgSpeed; // seconds
+                
+                if (etaSpan) {
+                    const etaLabel = window.i18n ? window.i18n.t('upload.remaining_time') : 'Remaining:';
+                    etaSpan.textContent = `${etaLabel} ${formatDuration(eta)}`;
+                }
+                
+                lastLoaded = e.loaded;
+                lastTime = currentTime;
+            }
         }
     });
     
@@ -777,13 +853,85 @@ function getConfirmMessage(confirmKey) {
 
 document.querySelectorAll('.delete-form').forEach(form => {
     form.addEventListener('submit', function(e) {
+        e.preventDefault();
         const confirmKey = this.dataset.confirmKey;
         const confirmMsg = getConfirmMessage(confirmKey);
         
-        if (!confirm(confirmMsg)) {
-            e.preventDefault();
+        // Use floating modal instead of browser confirm
+        if (window.showDeleteConfirmModal) {
+            window.showDeleteConfirmModal(confirmMsg, this);
+        } else {
+            // Fallback to browser confirm if modal not available
+            if (confirm(confirmMsg)) {
+                this.submit();
+            }
         }
     });
 });
+
+// Also update the deleteSelected function to use modal
+const originalDeleteSelected = window.deleteSelected;
+window.deleteSelected = function() {
+    const checkedItems = document.querySelectorAll('.item-checkbox:checked');
+    const confirmMsg = window.i18n ? window.i18n.t('confirm.delete_selected') : 'Delete selected items?';
+    
+    if (checkedItems.length === 0) return;
+    
+    if (window.showDeleteConfirmModal) {
+        // Create a virtual form for bulk delete
+        const bulkDeleteAction = function() {
+            const deletePromises = Array.from(checkedItems).map(checkbox => {
+                const type = checkbox.dataset.type;
+                const id = checkbox.dataset.id;
+                const url = type === 'folder' ? `/folder/${id}/delete` : `/file/${id}/delete`;
+                
+                return fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    }
+                });
+            });
+            
+            Promise.all(deletePromises)
+                .then(() => {
+                    window.location.reload();
+                })
+                .catch(error => {
+                    console.error('Error deleting items:', error);
+                    showToast('error', window.i18n ? window.i18n.t('upload.error') : 'An error occurred while deleting items. Please refresh the page.');
+                    window.location.reload();
+                });
+        };
+        
+        // Show modal and set up custom confirmation
+        const modal = document.getElementById('delete-confirm-modal');
+        const messageEl = document.getElementById('delete-confirm-message');
+        const confirmBtn = document.getElementById('delete-confirm-btn');
+        
+        if (modal && messageEl && confirmBtn) {
+            messageEl.textContent = confirmMsg;
+            modal.classList.add('active');
+            
+            // Remove previous event listener and add new one
+            const newConfirmBtn = confirmBtn.cloneNode(true);
+            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+            newConfirmBtn.addEventListener('click', function() {
+                bulkDeleteAction();
+                modal.classList.remove('active');
+            });
+        } else {
+            // Fallback
+            if (confirm(confirmMsg)) {
+                bulkDeleteAction();
+            }
+        }
+    } else {
+        // Fallback to original behavior
+        if (originalDeleteSelected) {
+            originalDeleteSelected();
+        }
+    }
+};
 </script>
 {% endblock %}

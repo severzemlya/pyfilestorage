@@ -1482,6 +1482,75 @@ a:hover {
     color: var(--text-muted);
 }
 
+/* Upload ETA Display */
+.upload-progress-eta {
+    margin-top: 10px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+#upload-eta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* ==================== Share Link Modal ==================== */
+.share-link-modal-content {
+    max-width: 500px;
+}
+
+.share-link-modal-body {
+    padding: 20px;
+    text-align: center;
+}
+
+.share-link-modal-body p {
+    margin-bottom: 15px;
+    color: var(--success-color);
+    font-weight: 500;
+}
+
+.share-link-display {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.share-link-display input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--input-bg);
+    color: var(--text-color);
+    font-size: 14px;
+}
+
+.share-link-display .btn {
+    flex-shrink: 0;
+}
+
+/* ==================== Delete Confirm Modal ==================== */
+.delete-confirm-modal-content {
+    max-width: 400px;
+}
+
+.delete-confirm-modal-content .modal-body {
+    padding: 20px;
+    text-align: center;
+}
+
+.delete-confirm-modal-content .modal-body p {
+    margin: 0;
+    font-size: 16px;
+}
+
+.modal-body {
+    padding: 20px;
+}
+
 /* ==================== Footer Storage Indicator ==================== */
 .footer {
     background: var(--footer-bg);
