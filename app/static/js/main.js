@@ -105,8 +105,15 @@ const i18n = {
 // Make i18n globally available
 window.i18n = i18n;
 
-// Initialize i18n
-i18n.init();
+// Initialize i18n when DOM is ready
+// This ensures translations are loaded before other scripts need them
+(function initI18n() {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => i18n.init());
+    } else {
+        i18n.init();
+    }
+})();
 
 // Language selector
 (function() {

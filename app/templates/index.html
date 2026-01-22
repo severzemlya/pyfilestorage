@@ -89,7 +89,7 @@
                 <thead>
                     <tr>
                         <th class="checkbox-col">
-                            <input type="checkbox" id="select-all" title="Select All">
+                            <input type="checkbox" id="select-all" title="Select All" data-i18n-title="file_explorer.select_all">
                         </th>
                         <th class="icon-col"></th>
                         <th class="name-col sortable" data-sort="name">
@@ -444,25 +444,30 @@ function deleteSelected() {
     if (checkedItems.length === 0) return;
     if (!confirm(confirmMsg)) return;
     
-    // Create a form to submit all deletions
-    checkedItems.forEach(checkbox => {
+    // Collect all deletion promises
+    const deletePromises = Array.from(checkedItems).map(checkbox => {
         const type = checkbox.dataset.type;
         const id = checkbox.dataset.id;
         const url = type === 'folder' ? `/folder/${id}/delete` : `/file/${id}/delete`;
         
-        // Submit deletion via fetch
-        fetch(url, {
+        return fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
             }
-        }).then(() => {
-            // Reload after last deletion
-            if (checkbox === checkedItems[checkedItems.length - 1]) {
-                window.location.reload();
-            }
         });
     });
+    
+    // Wait for all deletions to complete, then reload
+    Promise.all(deletePromises)
+        .then(() => {
+            window.location.reload();
+        })
+        .catch(error => {
+            console.error('Error deleting items:', error);
+            alert('An error occurred while deleting items. Please refresh the page.');
+            window.location.reload();
+        });
 }
 
 // ==================== Sorting ====================
@@ -560,11 +565,22 @@ function sortTable(field, order) {
 }
 
 // ==================== Delete form confirmation with i18n ====================
+const CONFIRM_MESSAGES = {
+    'confirm.delete_folder': 'Delete this folder and all its contents?',
+    'confirm.delete_file': 'Delete this file?'
+};
+
+function getConfirmMessage(confirmKey) {
+    if (window.i18n) {
+        return window.i18n.t(confirmKey);
+    }
+    return CONFIRM_MESSAGES[confirmKey] || 'Are you sure?';
+}
+
 document.querySelectorAll('.delete-form').forEach(form => {
     form.addEventListener('submit', function(e) {
         const confirmKey = this.dataset.confirmKey;
-        const confirmMsg = window.i18n ? window.i18n.t(confirmKey) : 
-            (confirmKey === 'confirm.delete_folder' ? 'Delete this folder and all its contents?' : 'Delete this file?');
+        const confirmMsg = getConfirmMessage(confirmKey);
         
         if (!confirm(confirmMsg)) {
             e.preventDefault();
