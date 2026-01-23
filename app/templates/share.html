@@ -29,6 +29,16 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="share_type" value="link">
                     
+                    {% if item_type == 'folder' %}
+                    <div class="form-group">
+                        <label for="link_permission">Permission</label>
+                        <select id="link_permission" name="link_permission">
+                            <option value="read">Read only (view and download)</option>
+                            <option value="write">Can edit (upload and create folders)</option>
+                        </select>
+                    </div>
+                    {% endif %}
+                    
                     <div class="form-group">
                         <label for="expires_days">Expiration (days)</label>
                         <select id="expires_days" name="expires_days">
@@ -96,6 +106,9 @@
                 <thead>
                     <tr>
                         <th>Link</th>
+                        {% if item_type == 'folder' %}
+                        <th>Permission</th>
+                        {% endif %}
                         <th>Password</th>
                         <th>Expires</th>
                         <th>Downloads</th>
@@ -109,11 +122,22 @@
                             <div class="share-link-cell">
                                 <input type="text" readonly value="{{ url_for('access_share_link', token=link.token, _external=True) }}" 
                                        class="share-link-input" id="link-{{ link.id }}">
-                                <button class="btn btn-icon" onclick="copyToClipboard('link-{{ link.id }}')" title="Copy">
+                                <button class="btn btn-icon" onclick="copyShareLink('link-{{ link.id }}')" title="Copy">
                                     <i class="fas fa-copy"></i>
                                 </button>
                             </div>
                         </td>
+                        {% if item_type == 'folder' %}
+                        <td>
+                            <span class="badge {{ 'badge-success' if link.permission == 'write' else 'badge-info' }}">
+                                {% if link.permission == 'write' %}
+                                <i class="fas fa-edit"></i> Can edit
+                                {% else %}
+                                <i class="fas fa-eye"></i> Read only
+                                {% endif %}
+                            </span>
+                        </td>
+                        {% endif %}
                         <td>
                             {% if link.password_hash %}
                             <i class="fas fa-lock" title="Password protected"></i>
@@ -196,7 +220,7 @@
 </div>
 
 <script>
-function copyToClipboard(inputId) {
+function copyShareLink(inputId) {
     const input = document.getElementById(inputId);
     const text = input.value;
     
@@ -204,26 +228,46 @@ function copyToClipboard(inputId) {
         navigator.clipboard.writeText(text).then(() => {
             showCopyFeedback(input);
         }).catch(() => {
-            fallbackCopy(input);
+            fallbackCopy(input, text);
         });
     } else {
-        fallbackCopy(input);
+        fallbackCopy(input, text);
     }
 }
 
-function fallbackCopy(input) {
-    input.select();
-    document.execCommand('copy');
-    showCopyFeedback(input);
+function fallbackCopy(input, text) {
+    // For iOS Safari and older browsers
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.appendChild(textarea);
+    
+    textarea.focus();
+    textarea.setSelectionRange(0, textarea.value.length);
+    
+    try {
+        document.execCommand('copy');
+        showCopyFeedback(input);
+    } catch (err) {
+        input.focus();
+        input.setSelectionRange(0, input.value.length);
+    }
+    
+    document.body.removeChild(textarea);
 }
 
 function showCopyFeedback(input) {
-    const btn = input.nextElementSibling;
-    const originalHtml = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-check"></i>';
-    setTimeout(() => {
-        btn.innerHTML = originalHtml;
-    }, 2000);
+    const container = input.parentElement;
+    const btn = container ? container.querySelector('button') : null;
+    if (btn) {
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check"></i>';
+        setTimeout(() => {
+            btn.innerHTML = originalHtml;
+        }, 2000);
+    }
 }
 
 // Handle share link form submission with AJAX to show floating modal
@@ -316,6 +360,8 @@ document.getElementById('create-link-form').addEventListener('submit', function(
     border-radius: 4px;
     background: var(--input-bg);
     color: var(--text-color);
+    /* Prevent flex item from overflowing */
+    min-width: 0;
 }
 
 .user-cell {
@@ -331,6 +377,65 @@ document.getElementById('create-link-form').addEventListener('submit', function(
 
 .user-cell small {
     color: var(--text-muted);
+}
+
+/* Mobile responsive styles for share page */
+@media (max-width: 768px) {
+    .page-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .page-header h2 {
+        font-size: 1.2em;
+    }
+
+    .share-sections {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+
+    .share-link-cell {
+        max-width: 200px;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .share-link-input {
+        width: 100%;
+        font-size: 12px;
+    }
+
+    .table {
+        min-width: 450px;
+    }
+
+    .card-body {
+        overflow-x: auto;
+    }
+
+    .user-cell i {
+        font-size: 20px;
+    }
+}
+
+@media (max-width: 480px) {
+    .page-header h2 {
+        font-size: 1em;
+    }
+
+    .share-link-cell {
+        max-width: 150px;
+    }
+
+    .share-link-input {
+        font-size: 12px;
+    }
+
+    .table {
+        font-size: 12px;
+    }
 }
 </style>
 {% endblock %}

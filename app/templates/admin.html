@@ -137,7 +137,7 @@
                             <div class="invite-link-cell">
                                 <input type="text" readonly value="{{ url_for('register', invite=invite.token, _external=True) }}"
                                        class="invite-link-input" id="invite-{{ invite.id }}">
-                                <button class="btn btn-icon" onclick="copyToClipboard('invite-{{ invite.id }}')" title="Copy">
+                                <button class="btn btn-icon" onclick="copyInviteLink('invite-{{ invite.id }}')" title="Copy">
                                     <i class="fas fa-copy"></i>
                                 </button>
                             </div>
@@ -316,34 +316,59 @@
 </div>
 
 <script>
-function copyToClipboard(inputId) {
+function copyInviteLink(inputId) {
     const input = document.getElementById(inputId);
     const text = input.value;
     
+    // Try modern clipboard API first
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(() => {
             showCopyFeedback(input);
         }).catch(() => {
-            fallbackCopy(input);
+            fallbackCopy(input, text);
         });
     } else {
-        fallbackCopy(input);
+        fallbackCopy(input, text);
     }
 }
 
-function fallbackCopy(input) {
-    input.select();
-    document.execCommand('copy');
-    showCopyFeedback(input);
+function fallbackCopy(input, text) {
+    // For iOS Safari and older browsers
+    // Create a temporary textarea for better mobile support
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.appendChild(textarea);
+    
+    // Select the text
+    textarea.focus();
+    textarea.setSelectionRange(0, textarea.value.length);
+    
+    try {
+        document.execCommand('copy');
+        showCopyFeedback(input);
+    } catch (err) {
+        // If copy fails, select the original input so user can copy manually
+        input.focus();
+        input.setSelectionRange(0, input.value.length);
+    }
+    
+    document.body.removeChild(textarea);
 }
 
 function showCopyFeedback(input) {
-    const btn = input.nextElementSibling;
-    const originalHtml = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-check"></i>';
-    setTimeout(() => {
-        btn.innerHTML = originalHtml;
-    }, 2000);
+    // Find the copy button within the same parent container
+    const container = input.parentElement;
+    const btn = container ? container.querySelector('button') : null;
+    if (btn) {
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check"></i>';
+        setTimeout(() => {
+            btn.innerHTML = originalHtml;
+        }, 2000);
+    }
 }
 
 function openQuotaModal(userId, userName, currentQuota) {
@@ -478,11 +503,102 @@ document.querySelectorAll('.modal').forEach(modal => {
     border-radius: 4px;
     background: var(--input-bg);
     color: var(--text-color);
+    /* Prevent flex item from overflowing container on mobile */
+    min-width: 0;
 }
 
 .btn-sm {
     padding: 4px 12px;
     font-size: 13px;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+    .admin-container > h1 {
+        font-size: 1.5em;
+        margin-bottom: 20px;
+    }
+    
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+    
+    .stat-card {
+        padding: 12px;
+        gap: 10px;
+    }
+    
+    .stat-icon {
+        width: 44px;
+        height: 44px;
+        font-size: 18px;
+    }
+    
+    .stat-info h3 {
+        font-size: 18px;
+    }
+    
+    .stat-info p {
+        font-size: 12px;
+    }
+    
+    .card-body {
+        padding: 15px;
+        overflow-x: auto;
+    }
+    
+    .table {
+        min-width: 500px;
+    }
+    
+    .table th,
+    .table td {
+        padding: 10px 8px;
+        font-size: 13px;
+    }
+    
+    .invite-link-cell {
+        max-width: 150px;
+        flex-direction: column;
+        gap: 4px;
+    }
+    
+    .invite-link-input {
+        width: 100%;
+        font-size: 11px;
+    }
+    
+    .settings-form .form-row,
+    .invite-form .form-row {
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    .settings-form .form-row .form-group,
+    .invite-form .form-row .form-group {
+        min-width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .table {
+        font-size: 12px;
+    }
+    
+    .table th,
+    .table td {
+        padding: 8px 6px;
+    }
+    
+    .btn-icon {
+        width: 32px;
+        height: 32px;
+    }
 }
 </style>
 {% endblock %}

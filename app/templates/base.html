@@ -30,46 +30,77 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     {% block extra_css %}{% endblock %}
 </head>
-<body>
+<body class="{% if session.user_id %}has-sidebar{% endif %}">
     {% if session.user_id %}
-    <nav class="navbar">
-        <div class="nav-brand">
-            <a href="{{ url_for('index') }}">
-                <i class="fas fa-cloud"></i> {{ app_name }}
+    <!-- Left Sidebar Navigation -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="{{ url_for('index') }}" class="sidebar-brand">
+                <i class="fas fa-cloud"></i>
+                <span class="sidebar-brand-text">{{ app_name }}</span>
             </a>
+            <button class="sidebar-toggle-mobile" id="sidebar-close" title="Close menu">
+                <i class="fas fa-times"></i>
+            </button>
         </div>
-        <div class="nav-menu">
-            <a href="{{ url_for('index') }}" class="nav-link">
-                <i class="fas fa-folder"></i> <span data-i18n="nav.files">Files</span>
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('index') }}" class="sidebar-link {% if request.endpoint == 'index' %}active{% endif %}">
+                <i class="fas fa-folder"></i>
+                <span data-i18n="nav.files">Files</span>
             </a>
             {% if session.role == 'admin' %}
-            <a href="{{ url_for('admin_dashboard') }}" class="nav-link">
-                <i class="fas fa-cog"></i> <span data-i18n="nav.admin">Admin</span>
+            <a href="{{ url_for('admin_dashboard') }}" class="sidebar-link {% if request.endpoint == 'admin_dashboard' %}active{% endif %}">
+                <i class="fas fa-cog"></i>
+                <span data-i18n="nav.admin">Admin</span>
             </a>
             {% endif %}
-            <a href="{{ url_for('settings_page') }}" class="nav-link">
-                <i class="fas fa-user"></i> {{ session.name }}
+            <a href="{{ url_for('settings_page') }}" class="sidebar-link {% if request.endpoint == 'settings_page' %}active{% endif %}">
+                <i class="fas fa-user-cog"></i>
+                <span data-i18n="nav.settings">Settings</span>
             </a>
-            <a href="{{ url_for('logout') }}" class="nav-link">
-                <i class="fas fa-sign-out-alt"></i> <span data-i18n="nav.logout">Logout</span>
-            </a>
-            <div class="lang-selector">
-                <button id="lang-toggle" class="lang-btn" title="Language">
-                    <i class="fas fa-globe"></i>
-                </button>
-                <div class="lang-dropdown" id="lang-dropdown">
-                    <button class="lang-option" data-lang="en">English</button>
-                    <button class="lang-option" data-lang="ja">日本語</button>
-                </div>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="sidebar-user">
+                <i class="fas fa-user-circle"></i>
+                <span class="sidebar-user-name">{{ session.name }}</span>
             </div>
-            <button id="theme-toggle" class="theme-btn" title="Toggle theme">
+            <div class="sidebar-actions">
+                <div class="lang-selector">
+                    <button id="lang-toggle" class="lang-btn" title="Language">
+                        <i class="fas fa-globe"></i>
+                    </button>
+                    <div class="lang-dropdown" id="lang-dropdown">
+                        <button class="lang-option" data-lang="en">English</button>
+                        <button class="lang-option" data-lang="ja">日本語</button>
+                    </div>
+                </div>
+                <button id="theme-toggle" class="theme-btn" title="Toggle theme">
+                    <i class="fas fa-moon"></i>
+                </button>
+                <a href="{{ url_for('logout') }}" class="sidebar-logout" title="Logout">
+                    <i class="fas fa-sign-out-alt"></i>
+                </a>
+            </div>
+        </div>
+    </aside>
+    
+    <!-- Mobile header with menu toggle -->
+    <header class="mobile-header">
+        <button class="sidebar-toggle" id="sidebar-toggle" title="Open menu">
+            <i class="fas fa-bars"></i>
+        </button>
+        <a href="{{ url_for('index') }}" class="mobile-brand">
+            <i class="fas fa-cloud"></i> {{ app_name }}
+        </a>
+        <div class="mobile-actions">
+            <button id="theme-toggle-mobile" class="theme-btn" title="Toggle theme">
                 <i class="fas fa-moon"></i>
             </button>
         </div>
-    </nav>
+    </header>
     {% endif %}
 
-    <main class="container">
+    <main class="main-content {% if session.user_id %}with-sidebar{% endif %}">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}

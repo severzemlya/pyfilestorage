@@ -6,33 +6,35 @@
 {% block twitter_description %}Browse and manage your files on {{ app_name }}{% endblock %}
 
 {% block content %}
-<div class="dashboard file-explorer">
-    <!-- Header with breadcrumbs and actions -->
-    <div class="dashboard-header">
-        <div class="breadcrumbs">
-            <a href="{{ url_for('index') }}"><i class="fas fa-home"></i> <span data-i18n="file_explorer.home">Home</span></a>
-            {% for crumb in breadcrumbs %}
-            <span class="separator">/</span>
-            <a href="{{ url_for('index', folder=crumb.id) }}">{{ crumb.name }}</a>
-            {% endfor %}
+<div class="dashboard file-explorer file-explorer-with-panel">
+    <!-- Main content area -->
+    <div class="file-explorer-main">
+        <!-- Header with breadcrumbs and actions -->
+        <div class="dashboard-header">
+            <div class="breadcrumbs">
+                <a href="{{ url_for('index') }}"><i class="fas fa-home"></i> <span data-i18n="file_explorer.home">Home</span></a>
+                {% for crumb in breadcrumbs %}
+                <span class="separator">/</span>
+                <a href="{{ url_for('index', folder=crumb.id) }}">{{ crumb.name }}</a>
+                {% endfor %}
+            </div>
+
+            <div class="header-actions">
+                <form method="GET" class="search-form">
+                    <div class="search-box">
+                        <input type="text" name="search" value="{{ search }}"
+                               placeholder="Search files..." data-i18n-placeholder="file_explorer.search_files">
+                        <button type="submit"><i class="fas fa-search"></i></button>
+                    </div>
+                </form>
+            </div>
         </div>
 
-        <div class="header-actions">
-            <form method="GET" class="search-form">
-                <div class="search-box">
-                    <input type="text" name="search" value="{{ search }}"
-                           placeholder="Search files..." data-i18n-placeholder="file_explorer.search_files">
-                    <button type="submit"><i class="fas fa-search"></i></button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Actions bar -->
-    <div class="actions-bar">
-        <button class="btn btn-primary" onclick="document.getElementById('create-folder-modal').classList.add('active')">
-            <i class="fas fa-folder-plus"></i> <span data-i18n="file_explorer.new_folder">New Folder</span>
-        </button>
+        <!-- Actions bar -->
+        <div class="actions-bar">
+            <button class="btn btn-primary" onclick="document.getElementById('create-folder-modal').classList.add('active')">
+                <i class="fas fa-folder-plus"></i> <span data-i18n="file_explorer.new_folder">New Folder</span>
+            </button>
         <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
             <i class="fas fa-upload"></i> <span data-i18n="file_explorer.upload_files">Upload Files</span>
         </button>
@@ -254,10 +256,21 @@
                                 <i class="fas fa-folder"></i>
                             </div>
                         </td>
-                        <td class="name-col">{{ folder.name }}</td>
+                        <td class="name-col">
+                            <a href="{{ url_for('view_shared_folder', folder_id=folder.id) }}" class="file-name-link">{{ folder.name }}</a>
+                        </td>
                         <td class="size-col">—</td>
                         <td class="shared-by-col">{{ folder.owner_name }}</td>
-                        <td class="actions-col"></td>
+                        <td class="actions-col">
+                            <div class="row-actions">
+                                <a href="{{ url_for('view_shared_folder', folder_id=folder.id) }}" class="btn-icon" title="Open" data-i18n-title="actions.open">
+                                    <i class="fas fa-folder-open"></i>
+                                </a>
+                                <a href="{{ url_for('download_shared_folder', folder_id=folder.id, target_folder_id=folder.id) }}" class="btn-icon" title="Download" data-i18n-title="actions.download">
+                                    <i class="fas fa-download"></i>
+                                </a>
+                            </div>
+                        </td>
                     </tr>
                     {% endfor %}
                     {% for file in shared_files %}
@@ -282,7 +295,21 @@
         </div>
     </div>
     {% endif %}
-</div>
+    </div><!-- End of file-explorer-main -->
+
+    <!-- Side Panel -->
+    <div class="side-panel" id="side-panel">
+        <div class="side-panel-header">
+            <h3 id="panel-title"><i class="fas fa-info-circle"></i> <span data-i18n="side_panel.details">Details</span></h3>
+            <button class="side-panel-close" onclick="closeSidePanel()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="side-panel-content" id="panel-content">
+            <p class="text-muted" data-i18n="side_panel.select_item">Select an item to view details</p>
+        </div>
+    </div>
+</div><!-- End of file-explorer-with-panel -->
 
 <!-- Create Folder Modal -->
 <div id="create-folder-modal" class="modal">
@@ -974,5 +1001,187 @@ window.deleteSelected = function() {
         }
     }
 };
+
+// ==================== Side Panel Functionality ====================
+function openSidePanel(type, id, data) {
+    const panel = document.getElementById('side-panel');
+    const container = document.querySelector('.file-explorer-with-panel');
+    const content = document.getElementById('panel-content');
+    const title = document.getElementById('panel-title');
+
+    if (!panel || !content) return;
+
+    // Build panel content based on type
+    let html = '';
+    let titleIcon = type === 'folder' ? 'fa-folder' : 'fa-file';
+    let titleText = type === 'folder' ? (window.i18n ? window.i18n.t('side_panel.folder_details') : 'Folder Details') : (window.i18n ? window.i18n.t('side_panel.file_details') : 'File Details');
+
+    if (title) {
+        title.innerHTML = `<i class="fas ${titleIcon}"></i> <span>${titleText}</span>`;
+    }
+
+    // Preview section
+    html += '<div class="side-panel-preview">';
+    if (type === 'folder') {
+        html += '<i class="fas fa-folder preview-icon folder-preview-icon"></i>';
+    } else if (data.thumbnailUrl) {
+        html += `<img src="${data.thumbnailUrl}" alt="" onerror="this.onerror=null;this.parentElement.innerHTML='<i class=\\'fas fa-file preview-icon\\'></i>'">`;
+    } else {
+        let fileIcon = 'fa-file';
+        if (data.fileType === 'image') fileIcon = 'fa-image';
+        else if (data.fileType === 'video') fileIcon = 'fa-video';
+        else if (data.fileType === 'audio') fileIcon = 'fa-music';
+        else if (data.fileType === 'pdf') fileIcon = 'fa-file-pdf';
+        html += `<i class="fas ${fileIcon} preview-icon"></i>`;
+    }
+    html += '</div>';
+
+    // Info section
+    html += '<div class="side-panel-info">';
+    html += `<h4>${escapeHtml(data.name)}</h4>`;
+
+    if (data.size && type !== 'folder') {
+        html += `<div class="side-panel-info-row">
+            <span class="side-panel-info-label">${window.i18n ? window.i18n.t('file_explorer.size') : 'Size'}</span>
+            <span class="side-panel-info-value">${data.size}</span>
+        </div>`;
+    }
+
+    if (data.date) {
+        html += `<div class="side-panel-info-row">
+            <span class="side-panel-info-label">${window.i18n ? window.i18n.t('file_explorer.modified') : 'Modified'}</span>
+            <span class="side-panel-info-value">${data.date}</span>
+        </div>`;
+    }
+
+    if (data.fileType && type !== 'folder') {
+        html += `<div class="side-panel-info-row">
+            <span class="side-panel-info-label">${window.i18n ? window.i18n.t('side_panel.type') : 'Type'}</span>
+            <span class="side-panel-info-value">${data.fileType}</span>
+        </div>`;
+    }
+    html += '</div>';
+
+    // Actions section
+    html += '<div class="side-panel-actions">';
+
+    if (type === 'folder') {
+        html += `<a href="${data.openUrl}" class="btn btn-primary"><i class="fas fa-folder-open"></i> ${window.i18n ? window.i18n.t('actions.open') : 'Open'}</a>`;
+        html += `<a href="${data.downloadUrl}" class="btn btn-secondary"><i class="fas fa-download"></i> ${window.i18n ? window.i18n.t('actions.download') : 'Download'}</a>`;
+        html += `<a href="${data.shareUrl}" class="btn btn-secondary"><i class="fas fa-share-alt"></i> ${window.i18n ? window.i18n.t('actions.share') : 'Share'}</a>`;
+    } else {
+        if (data.previewUrl) {
+            html += `<a href="${data.previewUrl}" class="btn btn-primary"><i class="fas fa-eye"></i> ${window.i18n ? window.i18n.t('actions.preview') : 'Preview'}</a>`;
+        }
+        html += `<a href="${data.downloadUrl}" class="btn btn-secondary"><i class="fas fa-download"></i> ${window.i18n ? window.i18n.t('actions.download') : 'Download'}</a>`;
+        html += `<a href="${data.shareUrl}" class="btn btn-secondary"><i class="fas fa-share-alt"></i> ${window.i18n ? window.i18n.t('actions.share') : 'Share'}</a>`;
+    }
+
+    html += '</div>';
+
+    content.innerHTML = html;
+    panel.classList.add('active');
+    if (container) container.classList.add('panel-open');
+}
+
+function closeSidePanel() {
+    const panel = document.getElementById('side-panel');
+    const container = document.querySelector('.file-explorer-with-panel');
+    if (panel) panel.classList.remove('active');
+    if (container) container.classList.remove('panel-open');
+
+    // Deselect all rows
+    document.querySelectorAll('.file-row.panel-selected').forEach(row => {
+        row.classList.remove('panel-selected');
+    });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Add click handlers to file rows for side panel
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.file-row').forEach(row => {
+        row.addEventListener('click', function(e) {
+            // Don't open panel if clicking on checkbox, link, or button
+            if (e.target.closest('input[type="checkbox"]') ||
+                e.target.closest('a') ||
+                e.target.closest('button') ||
+                e.target.closest('form')) {
+                return;
+            }
+
+            // Deselect other rows
+            document.querySelectorAll('.file-row.panel-selected').forEach(r => {
+                r.classList.remove('panel-selected');
+            });
+
+            // Select this row
+            this.classList.add('panel-selected');
+
+            const type = this.dataset.type;
+            const id = this.dataset.id;
+            const name = this.dataset.name;
+            const size = this.dataset.size;
+            const date = this.querySelector('.date-col')?.textContent?.trim() || '';
+
+            const data = {
+                name: name,
+                size: size ? formatFileSize(parseInt(size)) : null,
+                date: date
+            };
+
+            if (type === 'folder') {
+                data.openUrl = `/?folder=${id}`;
+                data.downloadUrl = `/folder/${id}/download`;
+                data.shareUrl = `/share/folder/${id}`;
+            } else {
+                const fileType = this.querySelector('.image-icon') ? 'image' :
+                                 this.querySelector('.video-icon') ? 'video' :
+                                 this.querySelector('.file-thumbnail') ? 'image' :
+                                 this.querySelector('.fa-music') ? 'audio' :
+                                 this.querySelector('.fa-file-pdf') ? 'pdf' : 'other';
+                data.fileType = fileType;
+
+                if (['image', 'video', 'audio', 'pdf'].includes(fileType)) {
+                    data.previewUrl = `/file/${id}/preview`;
+                }
+
+                // Check for thumbnail
+                const thumbnail = this.querySelector('.file-thumbnail img');
+                if (thumbnail && thumbnail.src) {
+                    data.thumbnailUrl = thumbnail.src;
+                }
+
+                data.downloadUrl = `/file/${id}/download`;
+                data.shareUrl = `/share/file/${id}`;
+            }
+
+            openSidePanel(type, id, data);
+        });
+    });
+
+    // Close panel when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.file-row') &&
+            !e.target.closest('.side-panel') &&
+            !e.target.closest('.modal')) {
+            // Don't close if clicking in the same area
+            if (e.target.closest('.file-explorer-table-container')) {
+                return;
+            }
+        }
+    });
+
+    // Close panel with Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            closeSidePanel();
+        }
+    });
+});
 </script>
 {% endblock %}
