@@ -434,6 +434,7 @@ def verify_turnstile(token, remote_ip=None):
     
     try:
         resp = requests.post(TURNSTILE_VERIFY_URL, data=payload, timeout=10)
+        resp.raise_for_status()  # Raise exception for HTTP errors
         result = resp.json()
         return result.get('success', False)
     except (requests.RequestException, json.JSONDecodeError):
