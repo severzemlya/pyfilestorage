@@ -16,23 +16,23 @@
             <i class="fas fa-download"></i> Download
         </a>
     </div>
-    
+
     <div class="preview-content">
         {% set file_type = get_file_type(file.mime_type) %}
-        
+
         {% if file_type == 'image' %}
         <div class="image-preview">
-            <img src="{{ url_for('view_file', file_id=file.id) }}" alt="{{ file.original_name }}">
+            <img src="{{ url_for('view_file', file_id=file.id) | content_url }}" alt="{{ file.original_name }}">
         </div>
-        
+
         {% elif file_type == 'video' %}
         <div class="video-preview">
             <video controls>
-                <source src="{{ url_for('view_file', file_id=file.id) }}" type="{{ file.mime_type }}">
+                <source src="{{ url_for('view_file', file_id=file.id) | content_url }}" type="{{ file.mime_type }}">
                 Your browser does not support the video tag.
             </video>
         </div>
-        
+
         {% elif file_type == 'audio' %}
         <div class="audio-preview">
             <div class="audio-icon">
@@ -40,16 +40,16 @@
             </div>
             <h3>{{ file.original_name }}</h3>
             <audio controls>
-                <source src="{{ url_for('view_file', file_id=file.id) }}" type="{{ file.mime_type }}">
+                <source src="{{ url_for('view_file', file_id=file.id) | content_url }}" type="{{ file.mime_type }}">
                 Your browser does not support the audio tag.
             </audio>
         </div>
-        
+
         {% elif file_type == 'pdf' %}
         <div class="pdf-preview">
-            <iframe src="{{ url_for('view_file', file_id=file.id) }}" frameborder="0"></iframe>
+            <iframe src="{{ url_for('view_file', file_id=file.id) | content_url }}" frameborder="0"></iframe>
         </div>
-        
+
         {% else %}
         <div class="no-preview">
             <i class="fas fa-file"></i>
