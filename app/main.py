@@ -217,9 +217,13 @@ def add_security_headers(response):
     """Add security headers to all responses."""
     # Content-Security-Policy to prevent XSS from uploaded files
     # Allow inline styles and scripts for the app, but restrict other content
+    host = request.host.split(':')[0]
     frame_src_values = ["'self'", "https://challenges.cloudflare.com"]
     if CONTENT_DOMAIN:
         frame_src_values.append(f"https://{CONTENT_DOMAIN}")
+    frame_ancestors_directive = "frame-ancestors 'none'"
+    if CONTENT_DOMAIN and APP_DOMAIN and host == CONTENT_DOMAIN:
+        frame_ancestors_directive = f"frame-ancestors https://{APP_DOMAIN}"
     csp_directives = [
         "default-src 'self'",
         "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://challenges.cloudflare.com",
@@ -228,7 +232,7 @@ def add_security_headers(response):
         "img-src 'self' data: blob:",
         "media-src 'self' blob:",
         f"frame-src {' '.join(frame_src_values)}",
-        "frame-ancestors 'none'",
+        frame_ancestors_directive,
         "base-uri 'self'",
         "form-action 'self'",
     ]
@@ -236,7 +240,10 @@ def add_security_headers(response):
 
     # Additional security headers
     response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
+    if CONTENT_DOMAIN and APP_DOMAIN and host == CONTENT_DOMAIN:
+        response.headers.pop('X-Frame-Options', None)
+    else:
+        response.headers['X-Frame-Options'] = 'DENY'
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
 
