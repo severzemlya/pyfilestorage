@@ -16,11 +16,11 @@
             <a href="{{ url_for('index', folder=crumb.id) }}">{{ crumb.name }}</a>
             {% endfor %}
         </div>
-        
+
         <div class="header-actions">
             <form method="GET" class="search-form">
                 <div class="search-box">
-                    <input type="text" name="search" value="{{ search }}" 
+                    <input type="text" name="search" value="{{ search }}"
                            placeholder="Search files..." data-i18n-placeholder="file_explorer.search_files">
                     <button type="submit"><i class="fas fa-search"></i></button>
                 </div>
@@ -45,7 +45,7 @@
             <input type="file" id="file-input" name="files" multiple>
             <input type="file" id="folder-input" name="files" webkitdirectory multiple>
         </form>
-        
+
         <!-- Bulk actions (hidden by default, shown when items are selected) -->
         <div class="bulk-actions" id="bulk-actions" style="display: none;">
             <span class="selection-count"><span id="selected-count">0</span> <span data-i18n="file_explorer.selected_items">selected</span></span>
@@ -53,7 +53,7 @@
                 <i class="fas fa-trash"></i> <span data-i18n="file_explorer.delete_selected">Delete Selected</span>
             </button>
         </div>
-        
+
         <!-- Sort dropdown -->
         <div class="sort-dropdown">
             <button class="btn btn-secondary" id="sort-toggle">
@@ -136,7 +136,7 @@
                                 <button class="btn-icon" title="Rename" data-i18n-title="actions.rename" onclick="openRenameModal('folder', {{ folder.id }}, '{{ folder.name }}')">
                                     <i class="fas fa-edit"></i>
                                 </button>
-                                <form method="POST" action="{{ url_for('delete_folder', folder_id=folder.id) }}" style="display: inline;" 
+                                <form method="POST" action="{{ url_for('delete_folder', folder_id=folder.id) }}" style="display: inline;"
                                       class="delete-form" data-confirm-key="confirm.delete_folder">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn-icon danger" title="Delete" data-i18n-title="actions.delete">
@@ -234,7 +234,7 @@
     {% if shared_files or shared_folders %}
     <div class="content-section shared-section">
         <h3><i class="fas fa-users"></i> <span data-i18n="file_explorer.shared_with_me">Shared with me</span></h3>
-        
+
         <div class="file-explorer-table-container">
             <table class="file-explorer-table">
                 <thead>
@@ -299,7 +299,7 @@
                 <input type="text" id="folder-name" name="name" required placeholder="Enter folder name" data-i18n-placeholder="modals.enter_folder_name">
             </div>
             <div class="modal-actions">
-                <button type="button" class="btn btn-secondary" 
+                <button type="button" class="btn btn-secondary"
                         onclick="document.getElementById('create-folder-modal').classList.remove('active')" data-i18n="actions.cancel">Cancel</button>
                 <button type="submit" class="btn btn-primary" data-i18n="actions.create">Create</button>
             </div>
@@ -321,7 +321,7 @@
                 <input type="text" id="rename-input" name="name" required>
             </div>
             <div class="modal-actions">
-                <button type="button" class="btn btn-secondary" 
+                <button type="button" class="btn btn-secondary"
                         onclick="document.getElementById('rename-modal').classList.remove('active')" data-i18n="actions.cancel">Cancel</button>
                 <button type="submit" class="btn btn-primary" data-i18n="actions.rename">Rename</button>
             </div>
@@ -335,8 +335,8 @@
 <div class="footer-storage-indicator">
     <div class="footer-storage-info">
         <i class="fas fa-database"></i>
-        <span data-i18n="file_explorer.storage">Storage</span>: 
-        <span id="footer-used-space">{{ format_size(user.used_space) }}</span> / 
+        <span data-i18n="file_explorer.storage">Storage</span>:
+        <span id="footer-used-space">{{ format_size(user.used_space) }}</span> /
         <span id="footer-quota">{{ format_size(user.quota) }}</span>
     </div>
     <div class="footer-quota-progress">
@@ -384,13 +384,13 @@ document.body.addEventListener('drop', async (e) => {
     if (items && items.length > 0) {
         const files = [];
         const relativePaths = [];
-        
+
         // Check if it contains directories
         const hasDirectory = Array.from(items).some(item => {
             const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
             return entry && entry.isDirectory;
         });
-        
+
         if (hasDirectory) {
             // Process directories recursively
             for (const item of items) {
@@ -429,7 +429,7 @@ async function traverseFileTree(item, path, files, relativePaths) {
         } else if (item.isDirectory) {
             const dirReader = item.createReader();
             const allEntries = [];
-            
+
             // readEntries may return partial results; must call repeatedly until empty
             const readAllEntries = () => {
                 dirReader.readEntries(async (entries) => {
@@ -479,11 +479,11 @@ function formatDuration(seconds) {
     if (!isFinite(seconds) || seconds <= 0) {
         return window.i18n ? window.i18n.t('upload.calculating') : 'Calculating...';
     }
-    
+
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
-    
+
     if (hours > 0) {
         return `${hours}h ${minutes}m ${secs}s`;
     } else if (minutes > 0) {
@@ -496,7 +496,7 @@ function formatDuration(seconds) {
 // Upload files with progress display
 function uploadFilesWithProgress(files, relativePaths) {
     if (files.length === 0) return;
-    
+
     const progressModal = document.getElementById('upload-progress-modal');
     const progressBar = document.getElementById('upload-progress-bar');
     const progressPercent = document.getElementById('upload-progress-percent');
@@ -504,7 +504,7 @@ function uploadFilesWithProgress(files, relativePaths) {
     const fileNameSpan = document.getElementById('upload-file-name');
     const fileCountSpan = document.getElementById('upload-file-count');
     const etaSpan = document.getElementById('upload-eta');
-    
+
     const totalSize = files.reduce((sum, f) => sum + f.size, 0);
     let uploadedSize = 0;
     let completedCount = 0;
@@ -512,70 +512,70 @@ function uploadFilesWithProgress(files, relativePaths) {
     let lastLoaded = 0;
     let lastTime = uploadStartTime;
     let speedSamples = [];
-    
+
     // Show progress modal
     progressModal.classList.add('active');
     fileCountSpan.textContent = `(0/${files.length})`;
     if (etaSpan) {
         etaSpan.textContent = window.i18n ? window.i18n.t('upload.estimating') : 'Estimating...';
     }
-    
+
     const formData = new FormData();
     formData.append('folder_id', currentFolderId);
-    
+
     // Add CSRF token for security
     const csrfToken = document.querySelector('meta[name="csrf-token"]');
     if (csrfToken) {
         formData.append('csrf_token', csrfToken.content);
     }
-    
+
     for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i]);
         formData.append('relative_paths', relativePaths[i]);
     }
-    
+
     const xhr = new XMLHttpRequest();
-    
+
     xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
             const percent = Math.round((e.loaded / e.total) * 100);
             progressBar.style.width = percent + '%';
             progressPercent.textContent = percent + '%';
             progressSize.textContent = formatFileSize(e.loaded) + ' / ' + formatFileSize(e.total);
-            
+
             // Calculate ETA
             const currentTime = Date.now();
             const timeDiff = (currentTime - lastTime) / 1000; // seconds
             const bytesDiff = e.loaded - lastLoaded;
-            
+
             if (timeDiff >= 0.5 && bytesDiff > 0) { // Update every 0.5 seconds
                 const currentSpeed = bytesDiff / timeDiff; // bytes per second
                 speedSamples.push(currentSpeed);
-                
+
                 // Keep only last 5 samples for smoothing
                 if (speedSamples.length > 5) {
                     speedSamples.shift();
                 }
-                
+
                 // Calculate average speed
                 const avgSpeed = speedSamples.reduce((a, b) => a + b, 0) / speedSamples.length;
                 const remainingBytes = e.total - e.loaded;
                 const eta = remainingBytes / avgSpeed; // seconds
-                
+
                 if (etaSpan) {
                     const etaLabel = window.i18n ? window.i18n.t('upload.remaining_time') : 'Remaining:';
                     etaSpan.textContent = `${etaLabel} ${formatDuration(eta)}`;
                 }
-                
+
                 lastLoaded = e.loaded;
                 lastTime = currentTime;
             }
         }
     });
-    
+
     xhr.addEventListener('load', () => {
         progressModal.classList.remove('active');
-        
+
         if (xhr.status === 200) {
             try {
                 const response = JSON.parse(xhr.responseText);
@@ -594,16 +594,16 @@ function uploadFilesWithProgress(files, relativePaths) {
             showToast('error', window.i18n ? window.i18n.t('upload.failed') : 'Upload failed');
         }
     });
-    
+
     xhr.addEventListener('error', () => {
         progressModal.classList.remove('active');
         showToast('error', window.i18n ? window.i18n.t('upload.error') : 'Upload error');
     });
-    
+
     xhr.open('POST', '{{ url_for("upload_file_ajax") }}');
     xhr.send(formData);
-    
-    fileNameSpan.textContent = files.length > 1 
+
+    fileNameSpan.textContent = files.length > 1
         ? (window.i18n ? window.i18n.t('upload.multiple_files') : `${files.length} files`)
         : files[0].name;
 }
@@ -622,20 +622,20 @@ function showToast(type, message) {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    
+
     let icon = 'fa-info-circle';
     if (type === 'success') icon = 'fa-check-circle';
     else if (type === 'error') icon = 'fa-exclamation-circle';
     else if (type === 'warning') icon = 'fa-exclamation-triangle';
-    
+
     toast.innerHTML = `
         <i class="fas ${icon}"></i>
         <span>${message}</span>
         <button class="toast-close" onclick="this.parentElement.remove()">&times;</button>
     `;
-    
+
     container.appendChild(toast);
-    
+
     // Auto-remove after 5 seconds
     setTimeout(() => {
         toast.classList.add('toast-fadeout');
@@ -648,13 +648,13 @@ function openRenameModal(type, id, currentName) {
     const modal = document.getElementById('rename-modal');
     const form = document.getElementById('rename-form');
     const input = document.getElementById('rename-input');
-    
+
     if (type === 'file') {
         form.action = `/file/${id}/rename`;
     } else {
         form.action = `/folder/${id}/rename`;
     }
-    
+
     input.value = currentName;
     modal.classList.add('active');
     input.focus();
@@ -688,15 +688,15 @@ const selectedCountSpan = document.getElementById('selected-count');
 function updateSelectionState() {
     const checkedItems = document.querySelectorAll('.item-checkbox:checked');
     const count = checkedItems.length;
-    
+
     selectedCountSpan.textContent = count;
-    
+
     if (count > 0) {
         bulkActions.style.display = 'flex';
     } else {
         bulkActions.style.display = 'none';
     }
-    
+
     // Update select all checkbox state
     if (selectAllCheckbox) {
         if (count === 0) {
@@ -729,34 +729,38 @@ itemCheckboxes.forEach(checkbox => {
 function deleteSelected() {
     const checkedItems = document.querySelectorAll('.item-checkbox:checked');
     const confirmMsg = window.i18n ? window.i18n.t('confirm.delete_selected') : 'Delete selected items?';
-    
+
     if (checkedItems.length === 0) return;
     if (!confirm(confirmMsg)) return;
-    
-    // Collect all deletion promises
-    const deletePromises = Array.from(checkedItems).map(checkbox => {
-        const type = checkbox.dataset.type;
-        const id = checkbox.dataset.id;
-        const url = type === 'folder' ? `/folder/${id}/delete` : `/file/${id}/delete`;
-        
-        return fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
+
+    // Get CSRF token
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+    // Delete items sequentially to avoid database locking issues
+    const items = Array.from(checkedItems).map(checkbox => ({
+        type: checkbox.dataset.type,
+        id: checkbox.dataset.id
+    }));
+
+    async function deleteSequentially() {
+        for (const item of items) {
+            const url = item.type === 'folder' ? `/folder/${item.id}/delete` : `/file/${item.id}/delete`;
+            try {
+                await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': csrfToken
+                    }
+                });
+            } catch (error) {
+                console.error(`Error deleting ${item.type} ${item.id}:`, error);
             }
-        });
-    });
-    
-    // Wait for all deletions to complete, then reload
-    Promise.all(deletePromises)
-        .then(() => {
-            window.location.reload();
-        })
-        .catch(error => {
-            console.error('Error deleting items:', error);
-            alert('An error occurred while deleting items. Please refresh the page.');
-            window.location.reload();
-        });
+        }
+        window.location.reload();
+    }
+
+    deleteSequentially();
 }
 
 // ==================== Sorting ====================
@@ -773,7 +777,7 @@ if (sortToggle && sortMenu) {
         e.stopPropagation();
         sortMenu.classList.toggle('active');
     });
-    
+
     document.addEventListener('click', () => {
         sortMenu.classList.remove('active');
     });
@@ -794,30 +798,30 @@ sortableHeaders.forEach(header => {
     header.addEventListener('click', () => {
         const field = header.dataset.sort;
         let order = 'asc';
-        
+
         if (currentSort.field === field) {
             order = currentSort.order === 'asc' ? 'desc' : 'asc';
         }
-        
+
         sortTable(field, order);
     });
 });
 
 function sortTable(field, order) {
     currentSort = { field, order };
-    
+
     const tbody = document.getElementById('file-list');
     if (!tbody) return;
-    
+
     const rows = Array.from(tbody.querySelectorAll('.file-row'));
-    
+
     // Separate folders and files
     const folders = rows.filter(row => row.dataset.type === 'folder');
     const files = rows.filter(row => row.dataset.type === 'file');
-    
+
     const sortFn = (a, b) => {
         let valA, valB;
-        
+
         if (field === 'name') {
             valA = a.dataset.name.toLowerCase();
             valB = b.dataset.name.toLowerCase();
@@ -828,20 +832,20 @@ function sortTable(field, order) {
             valA = new Date(a.dataset.date).getTime() || 0;
             valB = new Date(b.dataset.date).getTime() || 0;
         }
-        
+
         if (valA < valB) return order === 'asc' ? -1 : 1;
         if (valA > valB) return order === 'asc' ? 1 : -1;
         return 0;
     };
-    
+
     folders.sort(sortFn);
     files.sort(sortFn);
-    
+
     // Clear and repopulate
     tbody.innerHTML = '';
     folders.forEach(row => tbody.appendChild(row));
     files.forEach(row => tbody.appendChild(row));
-    
+
     // Update header icons
     sortableHeaders.forEach(header => {
         const icon = header.querySelector('.sort-icon');
@@ -871,7 +875,7 @@ document.querySelectorAll('.delete-form').forEach(form => {
         e.preventDefault();
         const confirmKey = this.dataset.confirmKey;
         const confirmMsg = getConfirmMessage(confirmKey);
-        
+
         // Use floating modal instead of browser confirm
         if (window.showDeleteConfirmModal) {
             window.showDeleteConfirmModal(confirmMsg, this);
@@ -889,9 +893,9 @@ const originalDeleteSelected = window.deleteSelected;
 window.deleteSelected = function() {
     const checkedItems = document.querySelectorAll('.item-checkbox:checked');
     const confirmMsg = window.i18n ? window.i18n.t('confirm.delete_selected') : 'Delete selected items?';
-    
+
     if (checkedItems.length === 0) return;
-    
+
     if (window.showDeleteConfirmModal) {
         // Create a virtual form for bulk delete
         const bulkDeleteAction = function() {
@@ -899,7 +903,7 @@ window.deleteSelected = function() {
                 const type = checkbox.dataset.type;
                 const id = checkbox.dataset.id;
                 const url = type === 'folder' ? `/folder/${id}/delete` : `/file/${id}/delete`;
-                
+
                 return fetch(url, {
                     method: 'POST',
                     headers: {
@@ -907,7 +911,7 @@ window.deleteSelected = function() {
                     }
                 });
             });
-            
+
             Promise.all(deletePromises)
                 .then(() => {
                     window.location.reload();
@@ -918,16 +922,16 @@ window.deleteSelected = function() {
                     window.location.reload();
                 });
         };
-        
+
         // Show modal and set up custom confirmation
         const modal = document.getElementById('delete-confirm-modal');
         const messageEl = document.getElementById('delete-confirm-message');
         const confirmBtn = document.getElementById('delete-confirm-btn');
-        
+
         if (modal && messageEl && confirmBtn) {
             messageEl.textContent = confirmMsg;
             modal.classList.add('active');
-            
+
             // Remove previous event listener and add new one
             const newConfirmBtn = confirmBtn.cloneNode(true);
             confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
