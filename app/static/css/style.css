@@ -390,6 +390,9 @@ body.has-sidebar .footer {
     .main-content.with-sidebar {
         margin-left: 0;
         padding-top: 70px;
+        width: 100%;
+        max-width: 100vw;
+        overflow-x: hidden;
     }
 
     body.has-sidebar .footer {
@@ -1249,6 +1252,7 @@ body.has-sidebar .footer {
 
     .card-body {
         padding: 16px;
+        overflow-x: auto;
     }
 
     /* Tables */
