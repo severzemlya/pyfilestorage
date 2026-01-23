@@ -599,8 +599,8 @@ def stream_file_response(file_row, as_attachment=False, download_name=None):
     For unencrypted files, we can stream directly from disk.
     """
     file_path = UPLOAD_FOLDER / file_row['stored_name']
-    mime_type = file_row.get('mime_type') or 'application/octet-stream'
-    original_name = download_name or file_row.get('original_name', 'file')
+    mime_type = file_row['mime_type'] if file_row['mime_type'] else 'application/octet-stream'
+    original_name = download_name or file_row['original_name'] or 'file'
 
     is_encrypted = 'is_encrypted' in file_row.keys() and file_row['is_encrypted']
 
@@ -760,11 +760,7 @@ def login_google_callback():
         return redirect(url_for('login'))
 
     token = oauth.google.authorize_access_token()
-    userinfo = None
-    if token and 'id_token' in token:
-        userinfo = oauth.google.parse_id_token(token)
-    if not userinfo:
-        userinfo = oauth.google.get('userinfo').json()
+    userinfo = oauth.google.userinfo()
 
     email = (userinfo or {}).get('email', '').strip().lower()
     email_verified = bool((userinfo or {}).get('email_verified'))
