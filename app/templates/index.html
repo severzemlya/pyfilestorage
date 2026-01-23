@@ -1008,18 +1008,18 @@ function openSidePanel(type, id, data) {
     const container = document.querySelector('.file-explorer-with-panel');
     const content = document.getElementById('panel-content');
     const title = document.getElementById('panel-title');
-    
+
     if (!panel || !content) return;
-    
+
     // Build panel content based on type
     let html = '';
     let titleIcon = type === 'folder' ? 'fa-folder' : 'fa-file';
     let titleText = type === 'folder' ? (window.i18n ? window.i18n.t('side_panel.folder_details') : 'Folder Details') : (window.i18n ? window.i18n.t('side_panel.file_details') : 'File Details');
-    
+
     if (title) {
         title.innerHTML = `<i class="fas ${titleIcon}"></i> <span>${titleText}</span>`;
     }
-    
+
     // Preview section
     html += '<div class="side-panel-preview">';
     if (type === 'folder') {
@@ -1035,25 +1035,25 @@ function openSidePanel(type, id, data) {
         html += `<i class="fas ${fileIcon} preview-icon"></i>`;
     }
     html += '</div>';
-    
+
     // Info section
     html += '<div class="side-panel-info">';
     html += `<h4>${escapeHtml(data.name)}</h4>`;
-    
+
     if (data.size && type !== 'folder') {
         html += `<div class="side-panel-info-row">
             <span class="side-panel-info-label">${window.i18n ? window.i18n.t('file_explorer.size') : 'Size'}</span>
             <span class="side-panel-info-value">${data.size}</span>
         </div>`;
     }
-    
+
     if (data.date) {
         html += `<div class="side-panel-info-row">
             <span class="side-panel-info-label">${window.i18n ? window.i18n.t('file_explorer.modified') : 'Modified'}</span>
             <span class="side-panel-info-value">${data.date}</span>
         </div>`;
     }
-    
+
     if (data.fileType && type !== 'folder') {
         html += `<div class="side-panel-info-row">
             <span class="side-panel-info-label">${window.i18n ? window.i18n.t('side_panel.type') : 'Type'}</span>
@@ -1061,10 +1061,10 @@ function openSidePanel(type, id, data) {
         </div>`;
     }
     html += '</div>';
-    
+
     // Actions section
     html += '<div class="side-panel-actions">';
-    
+
     if (type === 'folder') {
         html += `<a href="${data.openUrl}" class="btn btn-primary"><i class="fas fa-folder-open"></i> ${window.i18n ? window.i18n.t('actions.open') : 'Open'}</a>`;
         html += `<a href="${data.downloadUrl}" class="btn btn-secondary"><i class="fas fa-download"></i> ${window.i18n ? window.i18n.t('actions.download') : 'Download'}</a>`;
@@ -1076,9 +1076,9 @@ function openSidePanel(type, id, data) {
         html += `<a href="${data.downloadUrl}" class="btn btn-secondary"><i class="fas fa-download"></i> ${window.i18n ? window.i18n.t('actions.download') : 'Download'}</a>`;
         html += `<a href="${data.shareUrl}" class="btn btn-secondary"><i class="fas fa-share-alt"></i> ${window.i18n ? window.i18n.t('actions.share') : 'Share'}</a>`;
     }
-    
+
     html += '</div>';
-    
+
     content.innerHTML = html;
     panel.classList.add('active');
     if (container) container.classList.add('panel-open');
@@ -1089,7 +1089,7 @@ function closeSidePanel() {
     const container = document.querySelector('.file-explorer-with-panel');
     if (panel) panel.classList.remove('active');
     if (container) container.classList.remove('panel-open');
-    
+
     // Deselect all rows
     document.querySelectorAll('.file-row.panel-selected').forEach(row => {
         row.classList.remove('panel-selected');
@@ -1107,35 +1107,35 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.file-row').forEach(row => {
         row.addEventListener('click', function(e) {
             // Don't open panel if clicking on checkbox, link, or button
-            if (e.target.closest('input[type="checkbox"]') || 
-                e.target.closest('a') || 
+            if (e.target.closest('input[type="checkbox"]') ||
+                e.target.closest('a') ||
                 e.target.closest('button') ||
                 e.target.closest('form')) {
                 return;
             }
-            
+
             // Deselect other rows
             document.querySelectorAll('.file-row.panel-selected').forEach(r => {
                 r.classList.remove('panel-selected');
             });
-            
+
             // Select this row
             this.classList.add('panel-selected');
-            
+
             const type = this.dataset.type;
             const id = this.dataset.id;
             const name = this.dataset.name;
             const size = this.dataset.size;
             const date = this.querySelector('.date-col')?.textContent?.trim() || '';
-            
+
             const data = {
                 name: name,
                 size: size ? formatFileSize(parseInt(size)) : null,
                 date: date
             };
-            
+
             if (type === 'folder') {
-                data.openUrl = `/files?folder=${id}`;
+                data.openUrl = `/?folder=${id}`;
                 data.downloadUrl = `/folder/${id}/download`;
                 data.shareUrl = `/share/folder/${id}`;
             } else {
@@ -1145,28 +1145,28 @@ document.addEventListener('DOMContentLoaded', function() {
                                  this.querySelector('.fa-music') ? 'audio' :
                                  this.querySelector('.fa-file-pdf') ? 'pdf' : 'other';
                 data.fileType = fileType;
-                
+
                 if (['image', 'video', 'audio', 'pdf'].includes(fileType)) {
                     data.previewUrl = `/file/${id}/preview`;
                 }
-                
+
                 // Check for thumbnail
                 const thumbnail = this.querySelector('.file-thumbnail img');
                 if (thumbnail && thumbnail.src) {
                     data.thumbnailUrl = thumbnail.src;
                 }
-                
+
                 data.downloadUrl = `/file/${id}/download`;
                 data.shareUrl = `/share/file/${id}`;
             }
-            
+
             openSidePanel(type, id, data);
         });
     });
-    
+
     // Close panel when clicking outside
     document.addEventListener('click', function(e) {
-        if (!e.target.closest('.file-row') && 
+        if (!e.target.closest('.file-row') &&
             !e.target.closest('.side-panel') &&
             !e.target.closest('.modal')) {
             // Don't close if clicking in the same area
@@ -1175,7 +1175,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     });
-    
+
     // Close panel with Escape key
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
