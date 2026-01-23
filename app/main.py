@@ -23,8 +23,8 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from dotenv import load_dotenv
-from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
-                   request, send_file, session, url_for, Response)
+from flask import (Flask, Response, abort, flash, g, jsonify, redirect,
+                   render_template, request, send_file, session, url_for)
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -116,12 +116,22 @@ BLOCKED_EXTENSIONS = set(APP_SETTINGS.get('blocked_extensions', [
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
+
+
+def get_env_bool(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
 # Set MAX_CONTENT_LENGTH to None if max_file_size is 0 or null (unlimited)
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE if MAX_FILE_SIZE else None
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # Session cookie security settings - don't set domain to ensure cookie is app-domain only
-app.config['SESSION_COOKIE_SECURE'] = not os.environ.get('FLASK_DEBUG', '0') == '1'
+debug_mode = get_env_bool('FLASK_DEBUG', False)
+app.config['SESSION_COOKIE_SECURE'] = get_env_bool('SESSION_COOKIE_SECURE', not debug_mode)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
@@ -1109,7 +1119,7 @@ def upload_file_ajax():
             part = re.sub(r'[<>:"/\\|?*\.]', '', part)[:255]
             if not part:
                 continue
-                
+
             partial_path = '/'.join(parts[:i + 1])
             if partial_path in folder_cache:
                 current_parent = folder_cache[partial_path]
@@ -1141,12 +1151,12 @@ def upload_file_ajax():
     for i, file in enumerate(files):
         if file.filename:
             relative_path = relative_paths[i] if i < len(relative_paths) else file.filename
-            
+
             # Validate relative path - prevent directory traversal
             if '..' in relative_path or relative_path.startswith('/'):
                 errors.append(f'Invalid path: {relative_path}')
                 continue
-            
+
             original_name = secure_filename(Path(relative_path).name)
 
             # Determine target folder
@@ -1536,11 +1546,11 @@ def share_file(file_id):
             db.commit()
 
             share_url = url_for('access_share_link', token=token, _external=True)
-            
+
             # Return JSON for AJAX requests
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                 return jsonify({'success': True, 'share_url': share_url})
-            
+
             flash(f'Share link created: {share_url}', 'success')
 
         elif share_type == 'user':
@@ -1631,11 +1641,11 @@ def share_folder(folder_id):
             db.commit()
 
             share_url = url_for('access_share_link', token=token, _external=True)
-            
+
             # Return JSON for AJAX requests
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                 return jsonify({'success': True, 'share_url': share_url})
-            
+
             flash(f'Share link created: {share_url}', 'success')
 
         elif share_type == 'user':
