@@ -217,6 +217,9 @@ def add_security_headers(response):
     """Add security headers to all responses."""
     # Content-Security-Policy to prevent XSS from uploaded files
     # Allow inline styles and scripts for the app, but restrict other content
+    frame_src_values = ["'self'", "https://challenges.cloudflare.com"]
+    if CONTENT_DOMAIN:
+        frame_src_values.append(f"https://{CONTENT_DOMAIN}")
     csp_directives = [
         "default-src 'self'",
         "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://challenges.cloudflare.com",
@@ -224,7 +227,7 @@ def add_security_headers(response):
         "font-src 'self' https://cdnjs.cloudflare.com",
         "img-src 'self' data: blob:",
         "media-src 'self' blob:",
-        "frame-src https://challenges.cloudflare.com",
+        f"frame-src {' '.join(frame_src_values)}",
         "frame-ancestors 'none'",
         "base-uri 'self'",
         "form-action 'self'",
