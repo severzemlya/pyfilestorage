@@ -736,6 +736,10 @@ function deleteSelected() {
     // Get CSRF token
     const csrfMeta = document.querySelector('meta[name="csrf-token"]');
     const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
+    if (!csrfToken) {
+        alert('CSRF token missing. Please refresh the page.');
+        return;
+    }
 
     // Delete items sequentially to avoid database locking issues
     const items = Array.from(checkedItems).map(checkbox => ({
@@ -751,11 +755,10 @@ function deleteSelected() {
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
                         'X-CSRFToken': csrfToken,
                         'X-CSRF-Token': csrfToken
                     },
-                    body: `csrf_token=${encodeURIComponent(csrfToken)}`
+                    body: new URLSearchParams({ csrf_token: csrfToken })
                 });
             } catch (error) {
                 console.error(`Error deleting ${item.type} ${item.id}:`, error);
@@ -903,28 +906,43 @@ window.deleteSelected = function() {
     if (window.showDeleteConfirmModal) {
         // Create a virtual form for bulk delete
         const bulkDeleteAction = function() {
-            const deletePromises = Array.from(checkedItems).map(checkbox => {
-                const type = checkbox.dataset.type;
-                const id = checkbox.dataset.id;
-                const url = type === 'folder' ? `/folder/${id}/delete` : `/file/${id}/delete`;
+            const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+            const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
+            if (!csrfToken) {
+                alert('CSRF token missing. Please refresh the page.');
+                return;
+            }
 
-                return fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
+            const items = Array.from(checkedItems).map(checkbox => ({
+                type: checkbox.dataset.type,
+                id: checkbox.dataset.id
+            }));
+
+            const deleteSequentially = async () => {
+                for (const item of items) {
+                    const url = item.type === 'folder' ? `/folder/${item.id}/delete` : `/file/${item.id}/delete`;
+                    try {
+                        await fetch(url, {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: {
+                                'X-CSRFToken': csrfToken,
+                                'X-CSRF-Token': csrfToken
+                            },
+                            body: new URLSearchParams({ csrf_token: csrfToken })
+                        });
+                    } catch (error) {
+                        console.error(`Error deleting ${item.type} ${item.id}:`, error);
                     }
-                });
-            });
+                }
+                window.location.reload();
+            };
 
-            Promise.all(deletePromises)
-                .then(() => {
-                    window.location.reload();
-                })
-                .catch(error => {
-                    console.error('Error deleting items:', error);
-                    showToast('error', window.i18n ? window.i18n.t('upload.error') : 'An error occurred while deleting items. Please refresh the page.');
-                    window.location.reload();
-                });
+            deleteSequentially().catch(error => {
+                console.error('Error deleting items:', error);
+                showToast('error', window.i18n ? window.i18n.t('upload.error') : 'An error occurred while deleting items. Please refresh the page.');
+                window.location.reload();
+            });
         };
 
         // Show modal and set up custom confirmation
