@@ -39,7 +39,8 @@
     "delete": "Delete",
     "cancel": "Cancel",
     "create": "Create",
-    "close": "Close"
+    "close": "Close",
+    "open": "Open"
   },
   "modals": {
     "create_folder": "Create New Folder",
@@ -80,6 +81,15 @@
   },
   "share": {
     "link_created": "Share Link Created",
-    "link_copied": "Link has been copied to clipboard!"
+    "link_copied": "Link has been copied to clipboard!",
+    "can_edit": "Can edit",
+    "read_only": "Read only"
+  },
+  "side_panel": {
+    "details": "Details",
+    "select_item": "Select an item to view details",
+    "folder_details": "Folder Details",
+    "file_details": "File Details",
+    "type": "Type"
   }
 }

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Shared folder: {{ share.folder_name }} on {{ app_name }}">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Shared Folder - {{ share.folder_name }}</title>
     <!-- Open Graph Protocol meta tags -->
     <meta property="og:title" content="Shared Folder - {{ share.folder_name }}">
@@ -26,6 +27,11 @@
             <i class="fas fa-folder-open"></i> {{ share.folder_name }}
         </div>
         <div class="nav-menu">
+            {% if share.permission == 'write' %}
+            <span class="badge badge-success" style="margin-right: 10px;">
+                <i class="fas fa-edit"></i> Can edit
+            </span>
+            {% endif %}
             <button id="theme-toggle" class="theme-btn" title="Toggle theme">
                 <i class="fas fa-moon"></i>
             </button>
@@ -38,6 +44,22 @@
                 <h2><i class="fas fa-folder-open"></i> {{ share.folder_name }}</h2>
                 <p class="text-muted">Shared folder</p>
             </div>
+
+            {% if share.permission == 'write' %}
+            <div class="actions-bar">
+                <button class="btn btn-primary" onclick="document.getElementById('create-folder-modal').classList.add('active')">
+                    <i class="fas fa-folder-plus"></i> New Folder
+                </button>
+                <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+                    <i class="fas fa-upload"></i> Upload Files
+                </button>
+                <form id="upload-form" method="POST" action="{{ url_for('upload_to_shared_link', token=share.token) }}" enctype="multipart/form-data" style="display: none;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="target_folder_id" value="{{ share.folder_id }}">
+                    <input type="file" id="file-input" name="files" multiple>
+                </form>
+            </div>
+            {% endif %}
 
             {% if folders %}
             <div class="section-header">
@@ -71,6 +93,11 @@
                         <span class="file-name" title="{{ file.original_name }}">{{ file.original_name }}</span>
                         <span class="file-size">{{ format_size(file.size) }}</span>
                     </div>
+                    <div class="file-actions">
+                        <a href="{{ url_for('download_shared_link_file', token=share.token, file_id=file.id) }}" class="btn-icon" title="Download">
+                            <i class="fas fa-download"></i>
+                        </a>
+                    </div>
                 </div>
                 {% endfor %}
             </div>
@@ -80,6 +107,9 @@
             <div class="empty-state">
                 <i class="fas fa-folder-open"></i>
                 <h3>This folder is empty</h3>
+                {% if share.permission == 'write' %}
+                <p>Upload files or create folders to get started</p>
+                {% endif %}
             </div>
             {% endif %}
         </div>
@@ -89,6 +119,44 @@
         <p>Shared via {{ app_name }}</p>
     </footer>
 
+    {% if share.permission == 'write' %}
+    <!-- Create Folder Modal -->
+    <div id="create-folder-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-folder-plus"></i> Create New Folder</h3>
+                <button class="modal-close" onclick="document.getElementById('create-folder-modal').classList.remove('active')">&times;</button>
+            </div>
+            <form method="POST" action="{{ url_for('create_folder_in_shared_link', token=share.token) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="parent_id" value="{{ share.folder_id }}">
+                <div class="form-group">
+                    <label for="folder-name">Folder Name</label>
+                    <input type="text" id="folder-name" name="name" required placeholder="Enter folder name">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary"
+                            onclick="document.getElementById('create-folder-modal').classList.remove('active')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% if share.permission == 'write' %}
+    <script>
+    // Handle file upload
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) {
+        fileInput.addEventListener('change', function() {
+            if (this.files.length > 0) {
+                document.getElementById('upload-form').submit();
+            }
+        });
+    }
+    </script>
+    {% endif %}
 </body>
 </html>

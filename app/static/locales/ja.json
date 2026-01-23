@@ -39,7 +39,8 @@
     "delete": "削除",
     "cancel": "キャンセル",
     "create": "作成",
-    "close": "閉じる"
+    "close": "閉じる",
+    "open": "開く"
   },
   "modals": {
     "create_folder": "新規フォルダを作成",
@@ -80,6 +81,15 @@
   },
   "share": {
     "link_created": "共有リンクが作成されました",
-    "link_copied": "リンクがクリップボードにコピーされました！"
+    "link_copied": "リンクがクリップボードにコピーされました！",
+    "can_edit": "編集可能",
+    "read_only": "読み取り専用"
+  },
+  "side_panel": {
+    "details": "詳細",
+    "select_item": "アイテムを選択して詳細を表示",
+    "folder_details": "フォルダの詳細",
+    "file_details": "ファイルの詳細",
+    "type": "種類"
   }
 }
