@@ -169,7 +169,10 @@ curl -X DELETE \
 
 The application features a clean, modern interface with:
 - Light and dark theme support
-- Responsive design for mobile devices
+- Responsive design optimized for mobile devices
+  - Touch-friendly buttons and controls
+  - Mobile-optimized admin dashboard tables
+  - Clipboard copy functionality with iOS Safari support
 - Icon-based visual elements
 - Drag-and-drop file and folder uploads
 - Visual thumbnails for images and videos
