@@ -21,8 +21,10 @@ from pathlib import Path
 from authlib.integrations.flask_client import OAuth
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from dotenv import load_dotenv
+from stream_zip import ZIP_64, stream_zip
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect,
                    render_template, request, send_file, session, url_for)
 from flask_wtf.csrf import CSRFProtect
@@ -547,29 +549,119 @@ def get_user_identity(user_id):
 
 
 def derive_user_encryption_key(user_id, email):
-    """Derive a per-user encryption key."""
+    """Derive a per-user AES-256 key for streaming encryption."""
     if not email:
         raise ValueError('Email is required for encryption')
 
     hkdf = HKDF(
         algorithm=hashes.SHA256(),
-        length=32,
-        salt=b'pyfilestorage',
+        length=32,  # AES-256 requires 32 bytes
+        salt=b'pyfilestorage_v2',  # New salt for v2 encryption
         info=f'user:{user_id}:{email}'.encode('utf-8')
     )
-    return base64.urlsafe_b64encode(hkdf.derive(FILE_ENCRYPTION_SECRET.encode('utf-8')))
+    return hkdf.derive(FILE_ENCRYPTION_SECRET.encode('utf-8'))
 
 
-def encrypt_for_user(data, user_id, email):
-    """Encrypt data using a user-specific key."""
+# Encryption chunk size for streaming (64KB)
+ENCRYPTION_CHUNK_SIZE = 64 * 1024
+
+
+def encrypt_file_streaming(input_file, output_path, user_id, email):
+    """
+    Encrypt file using AES-GCM with streaming support.
+    Format: [12-byte nonce][encrypted chunks...][16-byte auth tag]
+    Each chunk is encrypted independently with a derived nonce.
+    Chunk format: [4-byte chunk size][chunk ciphertext]
+    """
     key = derive_user_encryption_key(user_id, email)
-    return Fernet(key).encrypt(data)
+    base_nonce = secrets.token_bytes(12)
+
+    total_stored_size = 12  # base nonce
+
+    with open(output_path, 'wb') as out:
+        out.write(base_nonce)
+
+        chunk_index = 0
+        while True:
+            chunk = input_file.read(ENCRYPTION_CHUNK_SIZE)
+            if not chunk:
+                break
+
+            # Derive chunk-specific nonce from base nonce and chunk index
+            chunk_nonce = derive_chunk_nonce(base_nonce, chunk_index)
+            cipher = Cipher(algorithms.AES(key), modes.GCM(chunk_nonce))
+            encryptor = cipher.encryptor()
+
+            ciphertext = encryptor.update(chunk) + encryptor.finalize()
+            # Append auth tag to ciphertext
+            encrypted_chunk = ciphertext + encryptor.tag
+
+            # Write chunk size (4 bytes, big endian) + encrypted data
+            chunk_size = len(encrypted_chunk)
+            out.write(chunk_size.to_bytes(4, 'big'))
+            out.write(encrypted_chunk)
+
+            total_stored_size += 4 + chunk_size
+            chunk_index += 1
+
+    return total_stored_size
 
 
-def decrypt_for_user(data, user_id, email):
-    """Decrypt data using a user-specific key."""
+def derive_chunk_nonce(base_nonce, chunk_index):
+    """Derive a unique nonce for each chunk using XOR with chunk index."""
+    # Convert chunk_index to 12 bytes (padded)
+    index_bytes = chunk_index.to_bytes(12, 'big')
+    # XOR base_nonce with index_bytes
+    return bytes(a ^ b for a, b in zip(base_nonce, index_bytes))
+
+
+def decrypt_file_streaming(file_path, user_id, email, chunk_size=ENCRYPTION_CHUNK_SIZE):
+    """
+    Generator that decrypts and yields file data in chunks.
+    Uses streaming decryption to avoid loading entire file into memory.
+    """
     key = derive_user_encryption_key(user_id, email)
-    return Fernet(key).decrypt(data)
+
+    with open(file_path, 'rb') as f:
+        base_nonce = f.read(12)
+        if len(base_nonce) != 12:
+            raise ValueError('Invalid encrypted file format: missing nonce')
+
+        chunk_index = 0
+        while True:
+            # Read chunk size
+            size_bytes = f.read(4)
+            if not size_bytes:
+                break
+            if len(size_bytes) != 4:
+                raise ValueError('Invalid encrypted file format: truncated chunk size')
+
+            encrypted_chunk_size = int.from_bytes(size_bytes, 'big')
+
+            # Read encrypted chunk (ciphertext + tag)
+            encrypted_chunk = f.read(encrypted_chunk_size)
+            if len(encrypted_chunk) != encrypted_chunk_size:
+                raise ValueError('Invalid encrypted file format: truncated chunk data')
+
+            # Last 16 bytes are the auth tag
+            ciphertext = encrypted_chunk[:-16]
+            tag = encrypted_chunk[-16:]
+
+            # Derive chunk-specific nonce
+            chunk_nonce = derive_chunk_nonce(base_nonce, chunk_index)
+
+            cipher = Cipher(algorithms.AES(key), modes.GCM(chunk_nonce, tag))
+            decryptor = cipher.decryptor()
+
+            plaintext = decryptor.update(ciphertext) + decryptor.finalize()
+            yield plaintext
+
+            chunk_index += 1
+
+
+def decrypt_file_to_bytes(file_path, user_id, email):
+    """Decrypt entire file and return as bytes (for small files or when full content needed)."""
+    return b''.join(decrypt_file_streaming(file_path, user_id, email))
 
 
 def get_effective_stored_size(file_row):
@@ -583,45 +675,63 @@ def get_effective_stored_size(file_row):
 def load_file_bytes(file_row):
     """Load and decrypt file bytes if needed."""
     file_path = UPLOAD_FOLDER / file_row['stored_name']
-    data = file_path.read_bytes()
     if 'is_encrypted' in file_row.keys() and file_row['is_encrypted']:
         owner = get_user_identity(file_row['owner_id'])
         if not owner:
             raise ValueError('Owner not found for encrypted file')
-        return decrypt_for_user(data, owner['id'], owner['email'])
-    return data
+        return decrypt_file_to_bytes(file_path, owner['id'], owner['email'])
+    return file_path.read_bytes()
+
+
+def stream_file_data(file_row):
+    """Generator that yields decrypted file data chunks for streaming responses."""
+    file_path = UPLOAD_FOLDER / file_row['stored_name']
+    is_encrypted = 'is_encrypted' in file_row.keys() and file_row['is_encrypted']
+
+    if is_encrypted:
+        owner = get_user_identity(file_row['owner_id'])
+        if not owner:
+            raise ValueError('Owner not found for encrypted file')
+        yield from decrypt_file_streaming(file_path, owner['id'], owner['email'])
+    else:
+        # Stream unencrypted file in chunks
+        with open(file_path, 'rb') as f:
+            while True:
+                chunk = f.read(ENCRYPTION_CHUNK_SIZE)
+                if not chunk:
+                    break
+                yield chunk
 
 
 def stream_file_response(file_row, as_attachment=False, download_name=None):
     """
     Create a streaming file response.
-    For encrypted files, we must decrypt first (Fernet requires full ciphertext).
-    For unencrypted files, we can stream directly from disk.
+    Uses generator-based streaming for both encrypted and unencrypted files.
     """
-    file_path = UPLOAD_FOLDER / file_row['stored_name']
     mime_type = file_row['mime_type'] if file_row['mime_type'] else 'application/octet-stream'
     original_name = download_name or file_row['original_name'] or 'file'
+    original_size = file_row['size']
 
-    is_encrypted = 'is_encrypted' in file_row.keys() and file_row['is_encrypted']
+    def generate():
+        yield from stream_file_data(file_row)
 
-    if is_encrypted:
-        # For encrypted files, we must decrypt first (Fernet limitation)
-        # But we use BytesIO to avoid keeping multiple copies in memory
-        data = load_file_bytes(file_row)
-        return send_file(
-            io.BytesIO(data),
-            mimetype=mime_type,
-            as_attachment=as_attachment,
-            download_name=original_name
-        )
-    else:
-        # For unencrypted files, stream directly from disk
-        return send_file(
-            file_path,
-            mimetype=mime_type,
-            as_attachment=as_attachment,
-            download_name=original_name
-        )
+    response = Response(generate(), mimetype=mime_type)
+
+    if as_attachment:
+        # Use RFC 5987 encoding for non-ASCII filenames
+        try:
+            original_name.encode('ascii')
+            response.headers['Content-Disposition'] = f'attachment; filename="{original_name}"'
+        except UnicodeEncodeError:
+            encoded_name = original_name.encode('utf-8').decode('unicode_escape', errors='ignore')
+            response.headers['Content-Disposition'] = (
+                f"attachment; filename*=UTF-8''{original_name}"
+            )
+
+    # Set Content-Length from original (unencrypted) size
+    response.headers['Content-Length'] = original_size
+
+    return response
 
 
 # ==================== Routes: Authentication ====================
@@ -1038,31 +1148,35 @@ def upload_file():
                 flash(f'File type not allowed: {original_name}', 'error')
                 continue
 
-            # Read file to check size
-            file_data = file.read()
-            file_size = len(file_data)
+            # Get file size by seeking to end
+            file.seek(0, 2)  # Seek to end
+            file_size = file.tell()
+            file.seek(0)  # Reset to beginning
+
+            # Generate random stored name
+            stored_name = generate_stored_name(original_name)
+            file_path = UPLOAD_FOLDER / stored_name
 
             try:
-                encrypted_data = encrypt_for_user(file_data, user_id, session.get('email'))
+                # Use streaming encryption
+                stored_size = encrypt_file_streaming(file, file_path, user_id, session.get('email'))
             except Exception as exc:
                 flash(f'Encryption failed for {original_name}: {exc}', 'error')
+                # Clean up partial file if exists
+                if file_path.exists():
+                    file_path.unlink()
                 continue
-
-            stored_size = len(encrypted_data)
 
             # Check quota (use stored size)
             can_upload, error = check_quota(user_id, stored_size)
             if not can_upload:
                 flash(f'{error}: {original_name}', 'error')
+                # Remove the encrypted file since quota exceeded
+                if file_path.exists():
+                    file_path.unlink()
                 continue
 
-            # Generate random stored name
-            stored_name = generate_stored_name(original_name)
             mime_type = mimetypes.guess_type(original_name)[0]
-
-            # Save encrypted file
-            file_path = UPLOAD_FOLDER / stored_name
-            file_path.write_bytes(encrypted_data)
 
             # Save to database
             db.execute('''
@@ -1168,31 +1282,35 @@ def upload_file_ajax():
                 errors.append(f'File type not allowed: {original_name}')
                 continue
 
-            # Read file to check size
-            file_data = file.read()
-            file_size = len(file_data)
+            # Get file size by seeking to end
+            file.seek(0, 2)  # Seek to end
+            file_size = file.tell()
+            file.seek(0)  # Reset to beginning
+
+            # Generate random stored name
+            stored_name = generate_stored_name(original_name)
+            file_path = UPLOAD_FOLDER / stored_name
 
             try:
-                encrypted_data = encrypt_for_user(file_data, user_id, session.get('email'))
+                # Use streaming encryption
+                stored_size = encrypt_file_streaming(file, file_path, user_id, session.get('email'))
             except Exception as exc:
                 errors.append(f'Encryption failed for {original_name}')
+                # Clean up partial file if exists
+                if file_path.exists():
+                    file_path.unlink()
                 continue
-
-            stored_size = len(encrypted_data)
 
             # Check quota (use stored size)
             can_upload, error = check_quota(user_id, stored_size)
             if not can_upload:
                 errors.append(f'{error}: {original_name}')
+                # Remove the encrypted file since quota exceeded
+                if file_path.exists():
+                    file_path.unlink()
                 continue
 
-            # Generate random stored name
-            stored_name = generate_stored_name(original_name)
             mime_type = mimetypes.guess_type(original_name)[0]
-
-            # Save encrypted file
-            file_path = UPLOAD_FOLDER / stored_name
-            file_path.write_bytes(encrypted_data)
 
             # Save to database
             db.execute('''
@@ -1260,9 +1378,7 @@ def get_thumbnail(file_id):
 @app.route('/folder/<int:folder_id>/download')
 @login_required
 def download_folder(folder_id):
-    """Download folder as ZIP archive."""
-    import zipfile
-
+    """Download folder as streaming ZIP archive."""
     db = get_db()
     user_id = session['user_id']
 
@@ -1275,11 +1391,11 @@ def download_folder(folder_id):
         flash('Folder not found.', 'error')
         return redirect(url_for('index'))
 
-    # Create in-memory ZIP file
-    zip_buffer = io.BytesIO()
-
-    def add_folder_to_zip(zip_file, fid, path=''):
-        """Recursively add folder contents to ZIP."""
+    def collect_folder_entries(fid, path=''):
+        """
+        Generator that yields (file_path, file_row) tuples for all files in folder recursively.
+        This collects all files first before streaming to avoid database issues during streaming.
+        """
         # Get files in folder
         files = db.execute(
             'SELECT * FROM files WHERE folder_id = ? AND owner_id = ?',
@@ -1287,12 +1403,7 @@ def download_folder(folder_id):
         ).fetchall()
 
         for file in files:
-            try:
-                data = load_file_bytes(file)
-                file_path = path + file['original_name']
-                zip_file.writestr(file_path, data)
-            except Exception:
-                continue
+            yield (path + file['original_name'], file)
 
         # Get subfolders
         subfolders = db.execute(
@@ -1301,18 +1412,43 @@ def download_folder(folder_id):
         ).fetchall()
 
         for subfolder in subfolders:
-            add_folder_to_zip(zip_file, subfolder['id'], path + subfolder['name'] + '/')
+            yield from collect_folder_entries(subfolder['id'], path + subfolder['name'] + '/')
 
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        add_folder_to_zip(zip_file, folder_id, folder['name'] + '/')
+    def generate_zip_entries():
+        """Generator that yields stream-zip member tuples for streaming ZIP creation."""
+        # Collect all entries first (to avoid issues with db connection during streaming)
+        entries = list(collect_folder_entries(folder_id, folder['name'] + '/'))
 
-    zip_buffer.seek(0)
-    return send_file(
-        zip_buffer,
-        as_attachment=True,
-        download_name=f"{folder['name']}.zip",
-        mimetype='application/zip'
-    )
+        for file_path, file_row in entries:
+            try:
+                # Create a generator for the file data
+                def file_data_generator(fr=file_row):
+                    yield from stream_file_data(fr)
+
+                # Get modification time (or use current time)
+                try:
+                    mtime = datetime.strptime(file_row['created_at'], '%Y-%m-%d %H:%M:%S')
+                except (ValueError, TypeError):
+                    mtime = datetime.now()
+
+                yield (
+                    file_path,
+                    mtime,
+                    0o644,
+                    ZIP_64,
+                    file_data_generator()
+                )
+            except Exception:
+                # Skip files that can't be read
+                continue
+
+    def generate_zip():
+        """Generator that yields ZIP archive bytes."""
+        yield from stream_zip(generate_zip_entries())
+
+    response = Response(generate_zip(), mimetype='application/zip')
+    response.headers['Content-Disposition'] = f'attachment; filename="{folder["name"]}.zip"'
+    return response
 
 
 @app.route('/file/<int:file_id>/download')
@@ -1742,23 +1878,34 @@ def access_share_link(token):
     db.commit()
 
     if share['file_id']:
-        # Serve file
+        # Serve file using streaming
         file_path = UPLOAD_FOLDER / share['stored_name']
         if not file_path.exists():
             flash('File not found.', 'error')
             return redirect(url_for('login'))
 
         try:
-            data = load_file_bytes(share)
+            # Create a file row dict for stream_file_response
+            file_row = {
+                'stored_name': share['stored_name'],
+                'mime_type': share['mime_type'],
+                'original_name': share['file_name'],
+                'owner_id': share['owner_id'],
+                'is_encrypted': share['is_encrypted'],
+                'size': 0  # We need to get the actual size
+            }
+            # Get the actual file size from db
+            file_info = db.execute('SELECT size FROM files WHERE id = ?', (share['file_id'],)).fetchone()
+            if file_info:
+                file_row['size'] = file_info['size']
+
+            return stream_file_response(file_row, as_attachment=True, download_name=share['file_name'])
         except InvalidToken:
             flash('File could not be decrypted.', 'error')
             return redirect(url_for('login'))
         except Exception as exc:
             flash(f'Failed to read file: {exc}', 'error')
             return redirect(url_for('login'))
-
-        return send_file(io.BytesIO(data), as_attachment=True,
-                         download_name=share['file_name'], mimetype=share['mime_type'])
 
     elif share['folder_id']:
         # List folder contents
@@ -2042,26 +2189,33 @@ def api_upload():
     if not is_safe_filename(original_name):
         return jsonify({'error': 'File type not allowed'}), 400
 
-    file_data = file.read()
-    file_size = len(file_data)
+    # Get file size by seeking to end
+    file.seek(0, 2)  # Seek to end
+    file_size = file.tell()
+    file.seek(0)  # Reset to beginning
     user_id = g.api_user['user_id']
 
-    try:
-        encrypted_data = encrypt_for_user(file_data, user_id, g.api_user.get('email'))
-    except Exception as exc:
-        return jsonify({'error': f'Encryption failed: {exc}'}), 500
+    # Generate random stored name
+    stored_name = generate_stored_name(original_name)
+    file_path = UPLOAD_FOLDER / stored_name
 
-    stored_size = len(encrypted_data)
+    try:
+        # Use streaming encryption
+        stored_size = encrypt_file_streaming(file, file_path, user_id, g.api_user.get('email'))
+    except Exception as exc:
+        # Clean up partial file if exists
+        if file_path.exists():
+            file_path.unlink()
+        return jsonify({'error': f'Encryption failed: {exc}'}), 500
 
     can_upload, error = check_quota(user_id, stored_size)
     if not can_upload:
+        # Remove the encrypted file since quota exceeded
+        if file_path.exists():
+            file_path.unlink()
         return jsonify({'error': error}), 400
 
-    stored_name = generate_stored_name(original_name)
     mime_type = mimetypes.guess_type(original_name)[0]
-
-    file_path = UPLOAD_FOLDER / stored_name
-    file_path.write_bytes(encrypted_data)
 
     db = get_db()
     cursor = db.execute('''
