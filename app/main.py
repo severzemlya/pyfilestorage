@@ -527,6 +527,76 @@ def get_current_user():
     return db.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
 
 
+# ==================== Signed URL Helpers ====================
+import hmac
+import time as time_module
+
+
+def generate_file_access_token(file_id, user_id, expires_in=3600):
+    """
+    Generate a signed token for cross-domain file access.
+    Token format: {file_id}:{user_id}:{expires_ts}:{signature}
+
+    Args:
+        file_id: The file ID to grant access to
+        user_id: The user ID requesting access
+        expires_in: Token validity in seconds (default: 1 hour)
+
+    Returns:
+        A URL-safe base64-encoded signed token
+    """
+    expires_ts = int(time_module.time()) + expires_in
+    message = f"{file_id}:{user_id}:{expires_ts}"
+    signature = hmac.new(
+        app.secret_key.encode('utf-8'),
+        message.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()[:32]
+    return base64.urlsafe_b64encode(f"{message}:{signature}".encode()).decode()
+
+
+def verify_file_access_token(token, file_id):
+    """
+    Verify a signed file access token.
+
+    Args:
+        token: The signed token to verify
+        file_id: The file ID being accessed (must match token)
+
+    Returns:
+        user_id if token is valid, None otherwise
+    """
+    try:
+        decoded = base64.urlsafe_b64decode(token.encode()).decode()
+        parts = decoded.split(':')
+        if len(parts) != 4:
+            return None
+        token_file_id, token_user_id, expires_ts, signature = parts
+
+        # Verify file_id matches
+        if int(token_file_id) != file_id:
+            return None
+
+        # Verify not expired
+        if int(expires_ts) < time_module.time():
+            return None
+
+        # Verify signature using constant-time comparison
+        message = f"{token_file_id}:{token_user_id}:{expires_ts}"
+        expected_sig = hmac.new(
+            app.secret_key.encode('utf-8'),
+            message.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()[:32]
+
+        if not hmac.compare_digest(signature, expected_sig):
+            return None
+
+        return int(token_user_id)
+    except Exception:
+        return None
+
+
 # ==================== File Helpers ====================
 def is_safe_filename(filename):
     """Check if filename has a safe extension."""
@@ -1756,11 +1826,23 @@ def download_folder(folder_id):
 
 
 @app.route('/file/<int:file_id>/download')
-@login_required
 def download_file(file_id):
-    """Download a file."""
+    """Download a file. Supports both session and token-based auth."""
     db = get_db()
-    user_id = session['user_id']
+
+    # Check for signed token (cross-domain access)
+    token = request.args.get('token')
+    if token:
+        token_user_id = verify_file_access_token(token, file_id)
+        if token_user_id is None:
+            abort(403)  # Invalid or expired token
+        user_id = token_user_id
+    else:
+        # Normal session-based auth
+        if 'user_id' not in session:
+            flash('Please log in to access this page.', 'error')
+            return redirect(url_for('login'))
+        user_id = session['user_id']
 
     # Check ownership or shared access (direct file share or folder share)
     file = db.execute('''
@@ -1773,30 +1855,50 @@ def download_file(file_id):
     ''', (file_id, user_id, user_id, user_id)).fetchone()
 
     if not file:
+        if token:
+            abort(404)
         flash('File not found.', 'error')
         return redirect(url_for('index'))
 
     file_path = UPLOAD_FOLDER / file['stored_name']
     if not file_path.exists():
+        if token:
+            abort(404)
         flash('File not found on server.', 'error')
         return redirect(url_for('index'))
 
     try:
         return stream_file_response(file, as_attachment=True, download_name=file['original_name'])
     except InvalidToken:
+        if token:
+            abort(500)
         flash('File could not be decrypted.', 'error')
         return redirect(url_for('index'))
     except Exception as exc:
+        if token:
+            abort(500)
         flash(f'Failed to read file: {exc}', 'error')
         return redirect(url_for('index'))
 
 
 @app.route('/file/<int:file_id>/view')
-@login_required
 def view_file(file_id):
-    """View/preview a file."""
+    """View/preview a file. Supports both session and token-based auth."""
     db = get_db()
-    user_id = session['user_id']
+
+    # Check for signed token (cross-domain access from CONTENT_DOMAIN)
+    token = request.args.get('token')
+    if token:
+        token_user_id = verify_file_access_token(token, file_id)
+        if token_user_id is None:
+            abort(403)  # Invalid or expired token
+        user_id = token_user_id
+    else:
+        # Normal session-based auth
+        if 'user_id' not in session:
+            flash('Please log in to access this page.', 'error')
+            return redirect(url_for('login'))
+        user_id = session['user_id']
 
     file = db.execute('''
         SELECT f.* FROM files f
@@ -1808,22 +1910,18 @@ def view_file(file_id):
     ''', (file_id, user_id, user_id, user_id)).fetchone()
 
     if not file:
-        flash('File not found.', 'error')
-        return redirect(url_for('index'))
+        abort(404)  # Use abort for API-like responses when using tokens
 
     file_path = UPLOAD_FOLDER / file['stored_name']
     if not file_path.exists():
-        flash('File not found on server.', 'error')
-        return redirect(url_for('index'))
+        abort(404)
 
     try:
         return stream_file_response(file, as_attachment=False)
     except InvalidToken:
-        flash('File could not be decrypted.', 'error')
-        return redirect(url_for('index'))
-    except Exception as exc:
-        flash(f'Failed to read file: {exc}', 'error')
-        return redirect(url_for('index'))
+        abort(500)  # Decryption failed
+    except Exception:
+        abort(500)
 
 
 @app.route('/file/<int:file_id>/preview')
@@ -2873,12 +2971,21 @@ def inject_globals():
 def content_url(path):
     """
     Generate URL for content serving.
-    If CONTENT_DOMAIN is configured, use it for file URLs.
+    If CONTENT_DOMAIN is configured, use it for file URLs with signed tokens.
     Otherwise, use the normal URL.
     """
     if CONTENT_DOMAIN:
-        # Build URL with content domain
         scheme = 'https' if not os.environ.get('FLASK_DEBUG', '0') == '1' else 'http'
+
+        # For file view/download paths, add signed token for cross-domain auth
+        if 'user_id' in session:
+            match = re.match(r'/file/(\d+)/(view|download)', path)
+            if match:
+                file_id = int(match.group(1))
+                token = generate_file_access_token(file_id, session['user_id'])
+                separator = '&' if '?' in path else '?'
+                return f"{scheme}://{CONTENT_DOMAIN}{path}{separator}token={token}"
+
         return f"{scheme}://{CONTENT_DOMAIN}{path}"
     return path
 
