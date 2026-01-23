@@ -734,7 +734,8 @@ function deleteSelected() {
     if (!confirm(confirmMsg)) return;
 
     // Get CSRF token
-    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
 
     // Delete items sequentially to avoid database locking issues
     const items = Array.from(checkedItems).map(checkbox => ({
@@ -748,8 +749,11 @@ function deleteSelected() {
             try {
                 await fetch(url, {
                     method: 'POST',
+                    credentials: 'same-origin',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': csrfToken,
+                        'X-CSRF-Token': csrfToken
                     },
                     body: `csrf_token=${encodeURIComponent(csrfToken)}`
                 });
