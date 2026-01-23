@@ -854,10 +854,17 @@ a:hover {
     padding-top: 10px;
 }
 
-/* Responsive */
+/* Responsive - Tablet and Mobile */
 @media (max-width: 768px) {
+    /* Navigation */
     .navbar {
-        padding: 0 15px;
+        padding: 0 12px;
+        height: 56px;
+    }
+
+    .nav-brand a {
+        font-size: 1.1em;
+        gap: 8px;
     }
 
     .nav-link span {
@@ -868,10 +875,23 @@ a:hover {
         padding: 10px;
     }
 
-    .container {
-        padding: 20px 15px;
+    .nav-menu {
+        gap: 4px;
     }
 
+    .theme-btn,
+    .lang-btn {
+        width: 36px;
+        height: 36px;
+        font-size: 14px;
+    }
+
+    /* Container */
+    .container {
+        padding: 15px 12px;
+    }
+
+    /* Dashboard Header */
     .dashboard-header {
         flex-direction: column;
         align-items: stretch;
@@ -881,13 +901,276 @@ a:hover {
         max-width: none;
     }
 
+    /* Breadcrumbs */
+    .breadcrumbs {
+        font-size: 14px;
+    }
+
+    /* Actions Bar */
+    .actions-bar {
+        gap: 8px;
+    }
+
+    .actions-bar .btn {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+
+    .actions-bar .btn span {
+        display: none;
+    }
+
+    /* File Grid */
     .file-grid {
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 10px;
+    }
+
+    .file-card {
+        padding: 12px;
+    }
+
+    .file-icon {
+        width: 48px;
+        height: 48px;
+        font-size: 20px;
+        margin-bottom: 10px;
+    }
+
+    .file-name {
+        font-size: 13px;
+    }
+
+    .file-actions .btn-icon {
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
+    }
+
+    /* Auth Pages */
+    .auth-container {
+        min-height: calc(100vh - 150px);
+        padding: 10px;
     }
 
     .auth-card {
-        padding: 30px 20px;
-        margin: 20px;
+        padding: 25px 20px;
+        margin: 10px;
+        border-radius: 12px;
+    }
+
+    .auth-logo {
+        font-size: 40px;
+    }
+
+    .auth-header h1 {
+        font-size: 1.5em;
+    }
+
+    /* Cards */
+    .card {
+        border-radius: 10px;
+    }
+
+    .card-header {
+        padding: 14px 16px;
+    }
+
+    .card-header h3 {
+        font-size: 15px;
+    }
+
+    .card-body {
+        padding: 16px;
+    }
+
+    /* Tables */
+    .table th,
+    .table td {
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+
+    /* Modals */
+    .modal-content {
+        margin: 15px;
+        border-radius: 12px;
+    }
+
+    .modal-header {
+        padding: 16px;
+    }
+
+    .modal-content form {
+        padding: 16px;
+    }
+
+    /* Forms */
+    .form-group {
+        margin-bottom: 16px;
+    }
+
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+        padding: 12px;
+        font-size: 16px; /* Prevents zoom on iOS */
+    }
+
+    /* Buttons */
+    .btn {
+        padding: 10px 16px;
+        font-size: 14px;
+    }
+
+    .btn-icon {
+        width: 36px;
+        height: 36px;
+    }
+
+    /* Empty State */
+    .empty-state {
+        padding: 40px 15px;
+    }
+
+    .empty-state i {
+        font-size: 48px;
+    }
+
+    /* Footer */
+    .footer {
+        padding: 12px 15px;
+        font-size: 12px;
+    }
+}
+
+/* Responsive - Small Mobile */
+@media (max-width: 480px) {
+    .navbar {
+        padding: 0 10px;
+        height: 52px;
+    }
+
+    .nav-brand a {
+        font-size: 1em;
+    }
+
+    .nav-link {
+        padding: 8px;
+    }
+
+    .container {
+        padding: 12px 10px;
+    }
+
+    /* File Grid - Single column on very small screens */
+    .file-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+
+    .file-card {
+        padding: 10px;
+    }
+
+    .file-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 18px;
+    }
+
+    .file-name {
+        font-size: 12px;
+    }
+
+    .file-size {
+        font-size: 12px;
+    }
+
+    .file-actions {
+        gap: 4px;
+    }
+
+    .file-actions .btn-icon {
+        width: 26px;
+        height: 26px;
+        font-size: 12px;
+    }
+
+    /* Auth Card */
+    .auth-card {
+        padding: 20px 15px;
+        margin: 8px;
+    }
+
+    .auth-logo {
+        font-size: 36px;
+        margin-bottom: 10px;
+    }
+
+    .auth-header {
+        margin-bottom: 20px;
+    }
+
+    .auth-header h1 {
+        font-size: 1.3em;
+    }
+
+    .auth-header p {
+        font-size: 14px;
+    }
+
+    /* Cards */
+    .card-header {
+        padding: 12px 14px;
+    }
+
+    .card-body {
+        padding: 14px;
+    }
+
+    /* Tables */
+    .table th,
+    .table td {
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+
+    /* Buttons */
+    .btn {
+        padding: 8px 14px;
+        font-size: 13px;
+    }
+
+    .btn-block {
+        padding: 12px;
+    }
+
+    /* Modals */
+    .modal-content {
+        margin: 10px;
+    }
+
+    .modal-header h3 {
+        font-size: 14px;
+    }
+
+    /* Empty State */
+    .empty-state {
+        padding: 30px 10px;
+    }
+
+    .empty-state i {
+        font-size: 40px;
+        margin-bottom: 15px;
+    }
+
+    .empty-state h3 {
+        font-size: 1.1em;
+    }
+
+    .empty-state p {
+        font-size: 13px;
     }
 }
 

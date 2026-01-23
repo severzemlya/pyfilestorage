@@ -171,5 +171,81 @@
 .no-preview p {
     margin-bottom: 30px;
 }
+
+/* Mobile responsive styles for preview */
+@media (max-width: 768px) {
+    .preview-header {
+        flex-direction: column;
+        gap: 12px;
+        align-items: stretch;
+    }
+
+    .preview-header h2 {
+        order: -1;
+        text-align: left;
+        font-size: 1em;
+    }
+
+    .preview-header .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .preview-content {
+        min-height: 300px;
+        border-radius: 10px;
+    }
+
+    .image-preview {
+        padding: 10px;
+    }
+
+    .audio-preview {
+        padding: 40px 15px;
+    }
+
+    .audio-preview .audio-icon {
+        font-size: 60px;
+    }
+
+    .audio-preview h3 {
+        font-size: 1em;
+        margin-bottom: 20px;
+    }
+
+    .pdf-preview {
+        height: 60vh;
+    }
+
+    .no-preview {
+        padding: 40px 15px;
+    }
+
+    .no-preview i {
+        font-size: 60px;
+    }
+
+    .no-preview h3 {
+        font-size: 1.1em;
+    }
+}
+
+@media (max-width: 480px) {
+    .preview-header h2 {
+        font-size: 0.9em;
+    }
+
+    .preview-content {
+        min-height: 250px;
+    }
+
+    .audio-preview .audio-icon {
+        font-size: 48px;
+    }
+
+    .no-preview i {
+        font-size: 48px;
+    }
+}
 </style>
 {% endblock %}

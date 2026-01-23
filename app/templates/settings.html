@@ -266,5 +266,79 @@
 .api-docs code {
     color: var(--text-color);
 }
+
+/* Mobile responsive styles for settings */
+@media (max-width: 768px) {
+    .settings-container > h1 {
+        font-size: 1.5em;
+        margin-bottom: 20px;
+    }
+
+    .storage-stats {
+        gap: 20px;
+        flex-wrap: wrap;
+    }
+
+    .stat-value {
+        font-size: 20px;
+    }
+
+    .stat-label {
+        font-size: 13px;
+    }
+
+    .storage-bar {
+        height: 16px;
+    }
+
+    .api-token-form {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .api-token-form .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .api-docs {
+        padding: 15px;
+    }
+
+    .api-docs pre {
+        padding: 12px;
+        font-size: 12px;
+    }
+
+    .api-tokens-list .table {
+        min-width: 400px;
+    }
+
+    .api-tokens-list {
+        overflow-x: auto;
+    }
+}
+
+@media (max-width: 480px) {
+    .settings-container > h1 {
+        font-size: 1.3em;
+    }
+
+    .storage-stats {
+        gap: 15px;
+    }
+
+    .stat-value {
+        font-size: 18px;
+    }
+
+    .stat-label {
+        font-size: 12px;
+    }
+
+    .api-docs pre {
+        font-size: 12px;
+    }
+}
 </style>
 {% endblock %}
