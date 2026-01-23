@@ -29,6 +29,16 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="share_type" value="link">
                     
+                    {% if item_type == 'folder' %}
+                    <div class="form-group">
+                        <label for="link_permission">Permission</label>
+                        <select id="link_permission" name="link_permission">
+                            <option value="read">Read only (view and download)</option>
+                            <option value="write">Can edit (upload and create folders)</option>
+                        </select>
+                    </div>
+                    {% endif %}
+                    
                     <div class="form-group">
                         <label for="expires_days">Expiration (days)</label>
                         <select id="expires_days" name="expires_days">
@@ -96,6 +106,9 @@
                 <thead>
                     <tr>
                         <th>Link</th>
+                        {% if item_type == 'folder' %}
+                        <th>Permission</th>
+                        {% endif %}
                         <th>Password</th>
                         <th>Expires</th>
                         <th>Downloads</th>
@@ -114,6 +127,17 @@
                                 </button>
                             </div>
                         </td>
+                        {% if item_type == 'folder' %}
+                        <td>
+                            <span class="badge {{ 'badge-success' if link.permission == 'write' else 'badge-info' }}">
+                                {% if link.permission == 'write' %}
+                                <i class="fas fa-edit"></i> Can edit
+                                {% else %}
+                                <i class="fas fa-eye"></i> Read only
+                                {% endif %}
+                            </span>
+                        </td>
+                        {% endif %}
                         <td>
                             {% if link.password_hash %}
                             <i class="fas fa-lock" title="Password protected"></i>

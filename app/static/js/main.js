@@ -510,4 +510,71 @@ window.showDeleteConfirmModal = showDeleteConfirmModal;
 window.closeDeleteConfirmModal = closeDeleteConfirmModal;
 window.confirmDelete = confirmDelete;
 
+// ==================== Sidebar Toggle ====================
+(function() {
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    const sidebarClose = document.getElementById('sidebar-close');
+    const themeToggleMobile = document.getElementById('theme-toggle-mobile');
+    
+    // Create overlay element
+    let overlay = document.querySelector('.sidebar-overlay');
+    if (!overlay && sidebar) {
+        overlay = document.createElement('div');
+        overlay.className = 'sidebar-overlay';
+        document.body.appendChild(overlay);
+    }
+    
+    function openSidebar() {
+        if (sidebar) {
+            sidebar.classList.add('active');
+            if (overlay) overlay.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+    }
+    
+    function closeSidebar() {
+        if (sidebar) {
+            sidebar.classList.remove('active');
+            if (overlay) overlay.classList.remove('active');
+            document.body.style.overflow = '';
+        }
+    }
+    
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', openSidebar);
+    }
+    
+    if (sidebarClose) {
+        sidebarClose.addEventListener('click', closeSidebar);
+    }
+    
+    if (overlay) {
+        overlay.addEventListener('click', closeSidebar);
+    }
+    
+    // Mobile theme toggle
+    if (themeToggleMobile) {
+        themeToggleMobile.addEventListener('click', () => {
+            const html = document.documentElement;
+            const current = html.getAttribute('data-theme');
+            const newTheme = current === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            
+            // Update both theme toggle icons
+            document.querySelectorAll('.theme-btn i').forEach(icon => {
+                icon.className = newTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+            });
+        });
+    }
+    
+    // Close sidebar on window resize if in desktop mode
+    window.addEventListener('resize', () => {
+        if (window.innerWidth > 768) {
+            closeSidebar();
+        }
+    });
+})();
+
 console.log('PyFileStorage initialized');

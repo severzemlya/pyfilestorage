@@ -390,6 +390,11 @@ def ensure_schema():
     if 'stored_size' not in file_columns:
         db.execute('ALTER TABLE files ADD COLUMN stored_size INTEGER DEFAULT 0')
 
+    # Add permission column to share_links for editable folder links
+    share_link_columns = {row['name'] for row in db.execute("PRAGMA table_info(share_links)").fetchall()}
+    if 'permission' not in share_link_columns:
+        db.execute("ALTER TABLE share_links ADD COLUMN permission TEXT DEFAULT 'read'")
+
     db.execute('UPDATE files SET stored_size = size WHERE stored_size IS NULL OR stored_size = 0')
     db.commit()
 
@@ -986,6 +991,350 @@ def index():
                            get_file_type=get_file_type)
 
 
+@app.route('/shared/<int:folder_id>')
+@login_required
+def view_shared_folder(folder_id):
+    """View a folder shared with the current user."""
+    db = get_db()
+    user_id = session['user_id']
+    subfolder_id = request.args.get('subfolder', type=int)
+
+    # Check if user has access to this shared folder
+    share = db.execute('''
+        SELECT us.*, fo.name, fo.owner_id, u.name as owner_name
+        FROM user_shares us
+        JOIN folders fo ON us.folder_id = fo.id
+        JOIN users u ON fo.owner_id = u.id
+        WHERE us.folder_id = ? AND us.shared_with_id = ?
+    ''', (folder_id, user_id)).fetchone()
+
+    if not share:
+        flash('You do not have access to this folder.', 'error')
+        return redirect(url_for('index'))
+
+    # Get the current folder (root shared folder or subfolder)
+    current_folder_id = subfolder_id if subfolder_id else folder_id
+    current_folder = db.execute(
+        'SELECT * FROM folders WHERE id = ?',
+        (current_folder_id,)
+    ).fetchone()
+
+    if not current_folder:
+        flash('Folder not found.', 'error')
+        return redirect(url_for('index'))
+
+    # Verify subfolder is within the shared folder tree
+    if subfolder_id:
+        # Walk up the tree to verify this subfolder is under the shared root
+        check_folder = current_folder
+        valid = False
+        while check_folder:
+            if check_folder['id'] == folder_id:
+                valid = True
+                break
+            if check_folder['parent_id']:
+                check_folder = db.execute('SELECT * FROM folders WHERE id = ?',
+                                          (check_folder['parent_id'],)).fetchone()
+            else:
+                break
+        if not valid:
+            flash('You do not have access to this folder.', 'error')
+            return redirect(url_for('index'))
+
+    # Build breadcrumbs from current folder up to the shared root
+    breadcrumbs = []
+    folder = current_folder
+    while folder and folder['id'] != folder_id:
+        breadcrumbs.insert(0, dict(folder))
+        if folder['parent_id']:
+            folder = db.execute('SELECT * FROM folders WHERE id = ?',
+                                (folder['parent_id'],)).fetchone()
+        else:
+            break
+    # Add the root shared folder
+    root_folder = db.execute('SELECT * FROM folders WHERE id = ?', (folder_id,)).fetchone()
+    breadcrumbs.insert(0, dict(root_folder))
+
+    # Get contents of current folder
+    folders = db.execute('''
+        SELECT * FROM folders WHERE parent_id = ?
+        ORDER BY name
+    ''', (current_folder_id,)).fetchall()
+
+    files = db.execute('''
+        SELECT * FROM files WHERE folder_id = ?
+        ORDER BY original_name
+    ''', (current_folder_id,)).fetchall()
+
+    # Get user info
+    user = db.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+
+    return render_template('shared_folder_view.html',
+                           folders=folders,
+                           files=files,
+                           current_folder=current_folder,
+                           root_folder_id=folder_id,
+                           breadcrumbs=breadcrumbs,
+                           share=share,
+                           user=user,
+                           format_size=format_size,
+                           get_file_type=get_file_type)
+
+
+@app.route('/shared/<int:folder_id>/download/<int:target_folder_id>')
+@login_required
+def download_shared_folder(folder_id, target_folder_id):
+    """Download a folder from a shared folder as ZIP archive."""
+    import zipfile
+
+    db = get_db()
+    user_id = session['user_id']
+
+    # Check if user has access to this shared folder
+    share = db.execute('''
+        SELECT us.* FROM user_shares us
+        WHERE us.folder_id = ? AND us.shared_with_id = ?
+    ''', (folder_id, user_id)).fetchone()
+
+    if not share:
+        flash('You do not have access to this folder.', 'error')
+        return redirect(url_for('index'))
+
+    # Get the target folder
+    target_folder = db.execute(
+        'SELECT * FROM folders WHERE id = ?',
+        (target_folder_id,)
+    ).fetchone()
+
+    if not target_folder:
+        flash('Folder not found.', 'error')
+        return redirect(url_for('index'))
+
+    # Verify target folder is within the shared folder tree
+    if target_folder_id != folder_id:
+        check_folder = target_folder
+        valid = False
+        while check_folder:
+            if check_folder['id'] == folder_id:
+                valid = True
+                break
+            if check_folder['parent_id']:
+                check_folder = db.execute('SELECT * FROM folders WHERE id = ?',
+                                          (check_folder['parent_id'],)).fetchone()
+            else:
+                break
+        if not valid:
+            flash('You do not have access to this folder.', 'error')
+            return redirect(url_for('index'))
+
+    # Create in-memory ZIP file
+    zip_buffer = io.BytesIO()
+    folder_owner_id = target_folder['owner_id']
+
+    def add_folder_to_zip(zip_file, fid, path=''):
+        """Recursively add folder contents to ZIP."""
+        # Get files in folder
+        files = db.execute(
+            'SELECT * FROM files WHERE folder_id = ?',
+            (fid,)
+        ).fetchall()
+
+        for file in files:
+            try:
+                data = load_file_bytes(file)
+                file_path = path + file['original_name']
+                zip_file.writestr(file_path, data)
+            except Exception:
+                continue
+
+        # Get subfolders
+        subfolders = db.execute(
+            'SELECT * FROM folders WHERE parent_id = ?',
+            (fid,)
+        ).fetchall()
+
+        for subfolder in subfolders:
+            add_folder_to_zip(zip_file, subfolder['id'], path + subfolder['name'] + '/')
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        add_folder_to_zip(zip_file, target_folder_id, target_folder['name'] + '/')
+
+    zip_buffer.seek(0)
+    return send_file(
+        zip_buffer,
+        as_attachment=True,
+        download_name=f"{target_folder['name']}.zip",
+        mimetype='application/zip'
+    )
+
+
+@app.route('/shared/<int:folder_id>/create-folder', methods=['POST'])
+@login_required
+def create_folder_in_shared(folder_id):
+    """Create a new folder in a shared folder (requires write permission)."""
+    db = get_db()
+    user_id = session['user_id']
+
+    # Check if user has write access to this shared folder
+    share = db.execute('''
+        SELECT us.*, fo.owner_id FROM user_shares us
+        JOIN folders fo ON us.folder_id = fo.id
+        WHERE us.folder_id = ? AND us.shared_with_id = ? AND us.permission = 'write'
+    ''', (folder_id, user_id)).fetchone()
+
+    if not share:
+        flash('You do not have write access to this folder.', 'error')
+        return redirect(url_for('index'))
+
+    name = request.form.get('name', '').strip()
+    parent_id = request.form.get('parent_id', type=int)
+
+    if not name:
+        flash('Folder name is required.', 'error')
+        return redirect(url_for('view_shared_folder', folder_id=folder_id))
+
+    # Sanitize folder name
+    name = re.sub(r'[<>:"/\\|?*]', '', name)[:255]
+
+    # Verify parent folder is within the shared folder tree
+    if parent_id and parent_id != folder_id:
+        check_folder = db.execute('SELECT * FROM folders WHERE id = ?', (parent_id,)).fetchone()
+        valid = False
+        while check_folder:
+            if check_folder['id'] == folder_id:
+                valid = True
+                break
+            if check_folder['parent_id']:
+                check_folder = db.execute('SELECT * FROM folders WHERE id = ?',
+                                          (check_folder['parent_id'],)).fetchone()
+            else:
+                break
+        if not valid:
+            flash('Invalid parent folder.', 'error')
+            return redirect(url_for('view_shared_folder', folder_id=folder_id))
+
+    # Check for duplicate name in same location
+    existing = db.execute('''
+        SELECT id FROM folders WHERE name = ? AND owner_id = ? AND parent_id IS ?
+    ''', (name, share['owner_id'], parent_id)).fetchone()
+
+    if existing:
+        flash('A folder with this name already exists.', 'error')
+        if parent_id and parent_id != folder_id:
+            return redirect(url_for('view_shared_folder', folder_id=folder_id, subfolder=parent_id))
+        return redirect(url_for('view_shared_folder', folder_id=folder_id))
+
+    # Create folder under the original owner's account
+    db.execute('INSERT INTO folders (name, parent_id, owner_id) VALUES (?, ?, ?)',
+               (name, parent_id, share['owner_id']))
+    db.commit()
+
+    flash('Folder created successfully.', 'success')
+    if parent_id and parent_id != folder_id:
+        return redirect(url_for('view_shared_folder', folder_id=folder_id, subfolder=parent_id))
+    return redirect(url_for('view_shared_folder', folder_id=folder_id))
+
+
+@app.route('/shared/<int:folder_id>/upload', methods=['POST'])
+@login_required
+def upload_to_shared_folder(folder_id):
+    """Upload files to a shared folder (requires write permission)."""
+    db = get_db()
+    user_id = session['user_id']
+
+    # Check if user has write access to this shared folder
+    share = db.execute('''
+        SELECT us.*, fo.owner_id FROM user_shares us
+        JOIN folders fo ON us.folder_id = fo.id
+        WHERE us.folder_id = ? AND us.shared_with_id = ? AND us.permission = 'write'
+    ''', (folder_id, user_id)).fetchone()
+
+    if not share:
+        flash('You do not have write access to this folder.', 'error')
+        return redirect(url_for('index'))
+
+    target_folder_id = request.form.get('target_folder_id', type=int)
+
+    if 'files' not in request.files:
+        flash('No files selected.', 'error')
+        return redirect(url_for('view_shared_folder', folder_id=folder_id))
+
+    # Verify target folder is within the shared folder tree
+    if target_folder_id and target_folder_id != folder_id:
+        check_folder = db.execute('SELECT * FROM folders WHERE id = ?', (target_folder_id,)).fetchone()
+        valid = False
+        while check_folder:
+            if check_folder['id'] == folder_id:
+                valid = True
+                break
+            if check_folder['parent_id']:
+                check_folder = db.execute('SELECT * FROM folders WHERE id = ?',
+                                          (check_folder['parent_id'],)).fetchone()
+            else:
+                break
+        if not valid:
+            flash('Invalid target folder.', 'error')
+            return redirect(url_for('view_shared_folder', folder_id=folder_id))
+
+    files = request.files.getlist('files')
+    owner_id = share['owner_id']
+    owner = db.execute('SELECT email FROM users WHERE id = ?', (owner_id,)).fetchone()
+
+    uploaded = 0
+    for file in files:
+        if file.filename:
+            original_name = secure_filename(file.filename)
+
+            # Check file extension
+            if not is_safe_filename(original_name):
+                flash(f'File type not allowed: {original_name}', 'error')
+                continue
+
+            # Read file to check size
+            file_data = file.read()
+            file_size = len(file_data)
+
+            try:
+                encrypted_data = encrypt_for_user(file_data, owner_id, owner['email'])
+            except Exception as exc:
+                flash(f'Encryption failed for {original_name}: {exc}', 'error')
+                continue
+
+            stored_size = len(encrypted_data)
+
+            # Check quota (for the owner's account)
+            can_upload, error = check_quota(owner_id, stored_size)
+            if not can_upload:
+                flash(f'{error}: {original_name}', 'error')
+                continue
+
+            # Generate random stored name
+            stored_name = generate_stored_name(original_name)
+            mime_type = mimetypes.guess_type(original_name)[0]
+
+            # Save encrypted file
+            file_path = UPLOAD_FOLDER / stored_name
+            file_path.write_bytes(encrypted_data)
+
+            # Save to database (under the owner's account)
+            db.execute('''
+                INSERT INTO files (original_name, stored_name, mime_type, size, stored_size, folder_id, owner_id, is_encrypted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (original_name, stored_name, mime_type, file_size, stored_size, target_folder_id, owner_id, 1))
+
+            update_user_space(owner_id, stored_size)
+            uploaded += 1
+
+    db.commit()
+
+    if uploaded > 0:
+        flash(f'{uploaded} file(s) uploaded successfully.', 'success')
+
+    if target_folder_id and target_folder_id != folder_id:
+        return redirect(url_for('view_shared_folder', folder_id=folder_id, subfolder=target_folder_id))
+    return redirect(url_for('view_shared_folder', folder_id=folder_id))
+
+
 # ==================== Routes: Folder Management ====================
 @app.route('/folder/create', methods=['POST'])
 @login_required
@@ -1305,8 +1654,9 @@ def get_thumbnail(file_id):
         WHERE f.id = ? AND (
             f.owner_id = ?
             OR EXISTS (SELECT 1 FROM user_shares us WHERE us.file_id = f.id AND us.shared_with_id = ?)
+            OR EXISTS (SELECT 1 FROM user_shares us WHERE us.folder_id = f.folder_id AND us.shared_with_id = ?)
         )
-    ''', (file_id, user_id, user_id)).fetchone()
+    ''', (file_id, user_id, user_id, user_id)).fetchone()
 
     if not file:
         abort(404)
@@ -1402,14 +1752,15 @@ def download_file(file_id):
     db = get_db()
     user_id = session['user_id']
 
-    # Check ownership or shared access
+    # Check ownership or shared access (direct file share or folder share)
     file = db.execute('''
         SELECT f.* FROM files f
         WHERE f.id = ? AND (
             f.owner_id = ?
             OR EXISTS (SELECT 1 FROM user_shares us WHERE us.file_id = f.id AND us.shared_with_id = ?)
+            OR EXISTS (SELECT 1 FROM user_shares us WHERE us.folder_id = f.folder_id AND us.shared_with_id = ?)
         )
-    ''', (file_id, user_id, user_id)).fetchone()
+    ''', (file_id, user_id, user_id, user_id)).fetchone()
 
     if not file:
         flash('File not found.', 'error')
@@ -1442,8 +1793,9 @@ def view_file(file_id):
         WHERE f.id = ? AND (
             f.owner_id = ?
             OR EXISTS (SELECT 1 FROM user_shares us WHERE us.file_id = f.id AND us.shared_with_id = ?)
+            OR EXISTS (SELECT 1 FROM user_shares us WHERE us.folder_id = f.folder_id AND us.shared_with_id = ?)
         )
-    ''', (file_id, user_id, user_id)).fetchone()
+    ''', (file_id, user_id, user_id, user_id)).fetchone()
 
     if not file:
         flash('File not found.', 'error')
@@ -1476,8 +1828,9 @@ def preview_file(file_id):
         WHERE f.id = ? AND (
             f.owner_id = ?
             OR EXISTS (SELECT 1 FROM user_shares us WHERE us.file_id = f.id AND us.shared_with_id = ?)
+            OR EXISTS (SELECT 1 FROM user_shares us WHERE us.folder_id = f.folder_id AND us.shared_with_id = ?)
         )
-    ''', (file_id, user_id, user_id)).fetchone()
+    ''', (file_id, user_id, user_id, user_id)).fetchone()
 
     if not file:
         flash('File not found.', 'error')
@@ -1706,6 +2059,7 @@ def share_folder(folder_id):
             token = secrets.token_urlsafe(32)
             expires_days = request.form.get('expires_days', type=int)
             password = request.form.get('password', '').strip()
+            link_permission = request.form.get('link_permission', 'read')
 
             expires_at = None
             if expires_days:
@@ -1716,9 +2070,9 @@ def share_folder(folder_id):
                 password_hash = generate_password_hash(password)
 
             db.execute('''
-                INSERT INTO share_links (token, folder_id, created_by, password_hash, expires_at)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (token, folder_id, session['user_id'], password_hash, expires_at))
+                INSERT INTO share_links (token, folder_id, created_by, password_hash, expires_at, permission)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (token, folder_id, session['user_id'], password_hash, expires_at, link_permission))
             db.commit()
 
             share_url = url_for('access_share_link', token=token, _external=True)
@@ -1872,6 +2226,180 @@ def access_share_link(token):
 
     flash('Invalid share link.', 'error')
     return redirect(url_for('login'))
+
+
+@app.route('/s/<token>/upload', methods=['POST'])
+def upload_to_shared_link(token):
+    """Upload files to a shared folder via share link (requires write permission)."""
+    db = get_db()
+    share = db.execute('''
+        SELECT sl.*, fo.owner_id FROM share_links sl
+        JOIN folders fo ON sl.folder_id = fo.id
+        WHERE sl.token = ? AND sl.permission = 'write'
+    ''', (token,)).fetchone()
+
+    if not share:
+        flash('You do not have upload access to this folder.', 'error')
+        return redirect(url_for('access_share_link', token=token))
+
+    # Check if password authentication is required
+    if share['password_hash'] and not session.get(f'share_{token}'):
+        flash('Please enter the password to upload files.', 'error')
+        return redirect(url_for('access_share_link', token=token))
+
+    target_folder_id = request.form.get('target_folder_id', type=int) or share['folder_id']
+
+    if 'files' not in request.files:
+        flash('No files selected.', 'error')
+        return redirect(url_for('access_share_link', token=token))
+
+    files = request.files.getlist('files')
+    owner_id = share['owner_id']
+    owner = db.execute('SELECT email FROM users WHERE id = ?', (owner_id,)).fetchone()
+
+    uploaded = 0
+    for file in files:
+        if file.filename:
+            original_name = secure_filename(file.filename)
+
+            # Check file extension
+            if not is_safe_filename(original_name):
+                flash(f'File type not allowed: {original_name}', 'error')
+                continue
+
+            # Read file to check size
+            file_data = file.read()
+            file_size = len(file_data)
+
+            try:
+                encrypted_data = encrypt_for_user(file_data, owner_id, owner['email'])
+            except Exception as exc:
+                flash(f'Encryption failed for {original_name}: {exc}', 'error')
+                continue
+
+            stored_size = len(encrypted_data)
+
+            # Check quota (for the owner's account)
+            can_upload, error = check_quota(owner_id, stored_size)
+            if not can_upload:
+                flash(f'{error}: {original_name}', 'error')
+                continue
+
+            # Generate random stored name
+            stored_name = generate_stored_name(original_name)
+            mime_type = mimetypes.guess_type(original_name)[0]
+
+            # Save encrypted file
+            file_path = UPLOAD_FOLDER / stored_name
+            file_path.write_bytes(encrypted_data)
+
+            # Save to database (under the owner's account)
+            db.execute('''
+                INSERT INTO files (original_name, stored_name, mime_type, size, stored_size, folder_id, owner_id, is_encrypted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (original_name, stored_name, mime_type, file_size, stored_size, target_folder_id, owner_id, 1))
+
+            update_user_space(owner_id, stored_size)
+            uploaded += 1
+
+    db.commit()
+
+    if uploaded > 0:
+        flash(f'{uploaded} file(s) uploaded successfully.', 'success')
+
+    return redirect(url_for('access_share_link', token=token))
+
+
+@app.route('/s/<token>/create-folder', methods=['POST'])
+def create_folder_in_shared_link(token):
+    """Create a new folder in a shared folder via share link (requires write permission)."""
+    db = get_db()
+    share = db.execute('''
+        SELECT sl.*, fo.owner_id FROM share_links sl
+        JOIN folders fo ON sl.folder_id = fo.id
+        WHERE sl.token = ? AND sl.permission = 'write'
+    ''', (token,)).fetchone()
+
+    if not share:
+        flash('You do not have permission to create folders.', 'error')
+        return redirect(url_for('access_share_link', token=token))
+
+    # Check if password authentication is required
+    if share['password_hash'] and not session.get(f'share_{token}'):
+        flash('Please enter the password first.', 'error')
+        return redirect(url_for('access_share_link', token=token))
+
+    name = request.form.get('name', '').strip()
+    parent_id = request.form.get('parent_id', type=int) or share['folder_id']
+
+    if not name:
+        flash('Folder name is required.', 'error')
+        return redirect(url_for('access_share_link', token=token))
+
+    # Sanitize folder name
+    name = re.sub(r'[<>:"/\\|?*]', '', name)[:255]
+
+    # Check for duplicate name in same location
+    existing = db.execute('''
+        SELECT id FROM folders WHERE name = ? AND owner_id = ? AND parent_id IS ?
+    ''', (name, share['owner_id'], parent_id)).fetchone()
+
+    if existing:
+        flash('A folder with this name already exists.', 'error')
+        return redirect(url_for('access_share_link', token=token))
+
+    # Create folder under the original owner's account
+    db.execute('INSERT INTO folders (name, parent_id, owner_id) VALUES (?, ?, ?)',
+               (name, parent_id, share['owner_id']))
+    db.commit()
+
+    flash('Folder created successfully.', 'success')
+    return redirect(url_for('access_share_link', token=token))
+
+
+@app.route('/s/<token>/file/<int:file_id>/download')
+def download_shared_link_file(token, file_id):
+    """Download a file from a shared folder via share link."""
+    db = get_db()
+    share = db.execute('''
+        SELECT sl.* FROM share_links sl
+        WHERE sl.token = ?
+    ''', (token,)).fetchone()
+
+    if not share:
+        flash('Share link not found.', 'error')
+        return redirect(url_for('login'))
+
+    # Check if password authentication is required
+    if share['password_hash'] and not session.get(f'share_{token}'):
+        return redirect(url_for('access_share_link', token=token))
+
+    # Check that the file is in the shared folder
+    file = db.execute('''
+        SELECT f.* FROM files f
+        WHERE f.id = ? AND f.folder_id = ?
+    ''', (file_id, share['folder_id'])).fetchone()
+
+    if not file:
+        flash('File not found.', 'error')
+        return redirect(url_for('access_share_link', token=token))
+
+    file_path = UPLOAD_FOLDER / file['stored_name']
+    if not file_path.exists():
+        flash('File not found on server.', 'error')
+        return redirect(url_for('access_share_link', token=token))
+
+    try:
+        data = load_file_bytes(file)
+    except InvalidToken:
+        flash('File could not be decrypted.', 'error')
+        return redirect(url_for('access_share_link', token=token))
+    except Exception as exc:
+        flash(f'Failed to read file: {exc}', 'error')
+        return redirect(url_for('access_share_link', token=token))
+
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=file['original_name'], mimetype=file['mime_type'])
 
 
 @app.route('/share/link/<int:link_id>/delete', methods=['POST'])

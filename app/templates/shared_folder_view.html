@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}Shared: {{ share.name }} - {{ app_name }}{% endblock %}
+{% block og_title %}Shared Folder - {{ share.name }}{% endblock %}
+{% block og_description %}View shared folder: {{ share.name }} on {{ app_name }}{% endblock %}
+{% block twitter_title %}Shared Folder - {{ share.name }}{% endblock %}
+{% block twitter_description %}View shared folder: {{ share.name }} on {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="dashboard file-explorer file-explorer-with-panel">
+    <!-- Main content area -->
+    <div class="file-explorer-main">
+        <!-- Header with breadcrumbs -->
+        <div class="dashboard-header">
+            <div class="breadcrumbs">
+                <a href="{{ url_for('index') }}"><i class="fas fa-home"></i> <span data-i18n="file_explorer.home">Home</span></a>
+                <span class="separator">/</span>
+                <span class="shared-indicator"><i class="fas fa-user-friends"></i> {{ share.owner_name }}</span>
+                {% for crumb in breadcrumbs %}
+                <span class="separator">/</span>
+                {% if crumb.id == root_folder_id %}
+                <a href="{{ url_for('view_shared_folder', folder_id=root_folder_id) }}">{{ crumb.name }}</a>
+                {% else %}
+                <a href="{{ url_for('view_shared_folder', folder_id=root_folder_id, subfolder=crumb.id) }}">{{ crumb.name }}</a>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Actions bar (only if write permission) -->
+        {% if share.permission == 'write' %}
+        <div class="actions-bar">
+            <button class="btn btn-primary" onclick="document.getElementById('create-folder-modal').classList.add('active')">
+                <i class="fas fa-folder-plus"></i> <span data-i18n="file_explorer.new_folder">New Folder</span>
+            </button>
+            <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+                <i class="fas fa-upload"></i> <span data-i18n="file_explorer.upload_files">Upload Files</span>
+            </button>
+            <form id="upload-form" method="POST" action="{{ url_for('upload_to_shared_folder', folder_id=root_folder_id) }}" enctype="multipart/form-data" style="display: none;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="target_folder_id" value="{{ current_folder.id }}">
+                <input type="file" id="file-input" name="files" multiple>
+            </form>
+        </div>
+        {% endif %}
+
+        <!-- Permission badge -->
+        <div class="shared-info-bar">
+            <span class="badge {{ 'badge-success' if share.permission == 'write' else 'badge-info' }}">
+                {% if share.permission == 'write' %}
+                <i class="fas fa-edit"></i> <span data-i18n="share.can_edit">Can edit</span>
+                {% else %}
+                <i class="fas fa-eye"></i> <span data-i18n="share.read_only">Read only</span>
+                {% endif %}
+            </span>
+        </div>
+
+        <!-- Content section - File Explorer Table View -->
+        <div class="content-section">
+            {% if folders or files %}
+            <div class="file-explorer-table-container">
+                <table class="file-explorer-table" id="file-table">
+                    <thead>
+                        <tr>
+                            <th class="icon-col"></th>
+                            <th class="name-col">
+                                <span data-i18n="file_explorer.name">Name</span>
+                            </th>
+                            <th class="size-col">
+                                <span data-i18n="file_explorer.size">Size</span>
+                            </th>
+                            <th class="date-col">
+                                <span data-i18n="file_explorer.modified">Modified</span>
+                            </th>
+                            <th class="actions-col">
+                                <span data-i18n="file_explorer.actions">Actions</span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="file-list">
+                        <!-- Folders -->
+                        {% for folder in folders %}
+                        <tr class="file-row folder-row" data-type="folder" data-id="{{ folder.id }}" data-name="{{ folder.name }}">
+                            <td class="icon-col">
+                                <div class="file-icon-small folder-icon">
+                                    <i class="fas fa-folder"></i>
+                                </div>
+                            </td>
+                            <td class="name-col">
+                                <a href="{{ url_for('view_shared_folder', folder_id=root_folder_id, subfolder=folder.id) }}" class="file-name-link">{{ folder.name }}</a>
+                            </td>
+                            <td class="size-col">—</td>
+                            <td class="date-col">{{ folder.created_at.strftime('%Y-%m-%d %H:%M') if folder.created_at else '—' }}</td>
+                            <td class="actions-col">
+                                <div class="row-actions">
+                                    <a href="{{ url_for('download_shared_folder', folder_id=root_folder_id, target_folder_id=folder.id) }}" class="btn-icon" title="Download" data-i18n-title="actions.download">
+                                        <i class="fas fa-download"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+
+                        <!-- Files -->
+                        {% for file in files %}
+                        <tr class="file-row" data-type="file" data-id="{{ file.id }}" data-name="{{ file.original_name }}" data-size="{{ file.size }}">
+                            <td class="icon-col">
+                                {% if get_file_type(file.mime_type) == 'image' %}
+                                <div class="file-thumbnail" data-file-id="{{ file.id }}">
+                                    <img src="{{ url_for('get_thumbnail', file_id=file.id) }}" alt="" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="file-icon-small image-icon" style="display:none"><i class="fas fa-image"></i></div>
+                                </div>
+                                {% elif get_file_type(file.mime_type) == 'video' %}
+                                <div class="file-thumbnail video-thumbnail" data-file-id="{{ file.id }}">
+                                    <img src="{{ url_for('get_thumbnail', file_id=file.id) }}" alt="" loading="lazy" onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="file-icon-small video-icon" style="display:none"><i class="fas fa-video"></i></div>
+                                    <div class="video-play-icon"><i class="fas fa-play"></i></div>
+                                </div>
+                                {% else %}
+                                <div class="file-icon-small {{ get_file_type(file.mime_type) }}-icon">
+                                    {% if get_file_type(file.mime_type) == 'audio' %}
+                                    <i class="fas fa-music"></i>
+                                    {% elif get_file_type(file.mime_type) == 'pdf' %}
+                                    <i class="fas fa-file-pdf"></i>
+                                    {% elif get_file_type(file.mime_type) == 'text' %}
+                                    <i class="fas fa-file-alt"></i>
+                                    {% else %}
+                                    <i class="fas fa-file"></i>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </td>
+                            <td class="name-col">
+                                <span class="file-name-text" title="{{ file.original_name }}">{{ file.original_name }}</span>
+                            </td>
+                            <td class="size-col">{{ format_size(file.size) }}</td>
+                            <td class="date-col">{{ file.created_at.strftime('%Y-%m-%d %H:%M') if file.created_at else '—' }}</td>
+                            <td class="actions-col">
+                                <div class="row-actions">
+                                    {% if get_file_type(file.mime_type) in ['image', 'video', 'audio', 'pdf'] %}
+                                    <a href="{{ url_for('preview_file', file_id=file.id) }}" class="btn-icon" title="Preview" data-i18n-title="actions.preview">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    {% endif %}
+                                    <a href="{{ url_for('download_file', file_id=file.id) }}" class="btn-icon" title="Download" data-i18n-title="actions.download">
+                                        <i class="fas fa-download"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+
+            {% if not folders and not files %}
+            <div class="empty-state">
+                <i class="fas fa-folder-open"></i>
+                <h3 data-i18n="file_explorer.empty_folder">This folder is empty</h3>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Side Panel -->
+    <div class="side-panel" id="side-panel">
+        <div class="side-panel-header">
+            <h3 id="panel-title"><span data-i18n="side_panel.details">Details</span></h3>
+            <button class="side-panel-close" onclick="closeSidePanel()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="side-panel-content" id="panel-content">
+            <p class="text-muted" data-i18n="side_panel.select_item">Select an item to view details</p>
+        </div>
+    </div>
+</div>
+
+{% if share.permission == 'write' %}
+<!-- Create Folder Modal -->
+<div id="create-folder-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3><i class="fas fa-folder-plus"></i> <span data-i18n="modals.create_folder">Create New Folder</span></h3>
+            <button class="modal-close" onclick="document.getElementById('create-folder-modal').classList.remove('active')">&times;</button>
+        </div>
+        <form method="POST" action="{{ url_for('create_folder_in_shared', folder_id=root_folder_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="parent_id" value="{{ current_folder.id }}">
+            <div class="form-group">
+                <label for="folder-name" data-i18n="modals.folder_name">Folder Name</label>
+                <input type="text" id="folder-name" name="name" required placeholder="Enter folder name" data-i18n-placeholder="modals.enter_folder_name">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary"
+                        onclick="document.getElementById('create-folder-modal').classList.remove('active')" data-i18n="actions.cancel">Cancel</button>
+                <button type="submit" class="btn btn-primary" data-i18n="actions.create">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.shared-info-bar {
+    margin-bottom: 20px;
+}
+
+.shared-indicator {
+    color: var(--info-color);
+    font-weight: 500;
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Side panel functionality
+function closeSidePanel() {
+    document.getElementById('side-panel').classList.remove('active');
+}
+
+{% if share.permission == 'write' %}
+// Handle file upload
+const fileInput = document.getElementById('file-input');
+if (fileInput) {
+    fileInput.addEventListener('change', function() {
+        if (this.files.length > 0) {
+            document.getElementById('upload-form').submit();
+        }
+    });
+}
+{% endif %}
+</script>
+{% endblock %}
