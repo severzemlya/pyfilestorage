@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect,
                    render_template, request, send_file, session, url_for)
 from flask_wtf.csrf import CSRFProtect
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -134,6 +135,10 @@ debug_mode = get_env_bool('FLASK_DEBUG', False)
 app.config['SESSION_COOKIE_SECURE'] = get_env_bool('SESSION_COOKIE_SECURE', not debug_mode)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+# Trust proxy headers (e.g., X-Forwarded-Proto) for correct scheme detection
+if get_env_bool('TRUST_X_FORWARDED_PROTO', False):
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1)
 
 # Initialize CSRF protection
 csrf = CSRFProtect(app)
