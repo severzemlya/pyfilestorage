@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
 
+import requests
 from authlib.integrations.flask_client import OAuth
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
@@ -150,6 +151,11 @@ FILE_ENCRYPTION_SECRET = (
     or os.environ.get('SECRET_KEY')
     or app.secret_key
 )
+
+# Cloudflare Turnstile configuration
+TURNSTILE_SITE_KEY = os.environ.get('TURNSTILE_SITE_KEY', '').strip() or None
+TURNSTILE_SECRET_KEY = os.environ.get('TURNSTILE_SECRET_KEY', '').strip() or None
+TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
 
 if not os.environ.get('FILE_ENCRYPTION_SECRET') and not os.environ.get('SECRET_KEY'):
     print('WARNING: FILE_ENCRYPTION_SECRET or SECRET_KEY is not set. '
@@ -401,6 +407,42 @@ def create_admin_user():
         print(f"Admin user created: {email}")
 
 
+# ==================== Cloudflare Turnstile ====================
+def verify_turnstile(token, remote_ip=None):
+    """
+    Verify a Cloudflare Turnstile token.
+    
+    Args:
+        token: The cf-turnstile-response token from the form
+        remote_ip: Optional remote IP address for additional validation
+        
+    Returns:
+        bool: True if verification succeeded, False otherwise
+    """
+    if not TURNSTILE_SECRET_KEY:
+        return True  # Skip verification if not configured
+    
+    if not token:
+        return False
+    
+    payload = {
+        'secret': TURNSTILE_SECRET_KEY,
+        'response': token,
+    }
+    if remote_ip:
+        payload['remoteip'] = remote_ip
+    
+    try:
+        resp = requests.post(TURNSTILE_VERIFY_URL, data=payload, timeout=10)
+        resp.raise_for_status()  # Raise exception for HTTP errors
+        result = resp.json()
+        return result.get('success', False)
+    except (requests.RequestException, json.JSONDecodeError):
+        # On network errors, fail open to avoid blocking legitimate users
+        # In production, you may want to fail closed instead
+        return True
+
+
 # ==================== Authentication Helpers ====================
 def login_required(f):
     """Decorator to require authentication."""
@@ -629,7 +671,18 @@ def stream_file_response(file_row, as_attachment=False, download_name=None):
 def login():
     """User login page."""
     google_login_enabled = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+    turnstile_enabled = bool(TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY)
     if request.method == 'POST':
+        # Verify Turnstile token if enabled
+        if turnstile_enabled:
+            turnstile_token = request.form.get('cf-turnstile-response', '')
+            if not verify_turnstile(turnstile_token, request.remote_addr):
+                flash('Verification failed. Please try again.', 'error')
+                return render_template('login.html', 
+                                       google_login_enabled=google_login_enabled,
+                                       turnstile_enabled=turnstile_enabled,
+                                       turnstile_site_key=TURNSTILE_SITE_KEY)
+        
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '')
 
@@ -655,7 +708,10 @@ def login():
         else:
             flash('Invalid email or password.', 'error')
 
-    return render_template('login.html', google_login_enabled=google_login_enabled)
+    return render_template('login.html', 
+                           google_login_enabled=google_login_enabled,
+                           turnstile_enabled=turnstile_enabled,
+                           turnstile_site_key=TURNSTILE_SITE_KEY)
 
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -663,6 +719,7 @@ def register():
     """User registration page."""
     invite_token = request.args.get('invite')
     auto_approve = False
+    turnstile_enabled = bool(TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY)
 
     if invite_token:
         db = get_db()
@@ -679,17 +736,33 @@ def register():
             return redirect(url_for('login'))
 
     if request.method == 'POST':
+        # Verify Turnstile token if enabled
+        if turnstile_enabled:
+            turnstile_token = request.form.get('cf-turnstile-response', '')
+            if not verify_turnstile(turnstile_token, request.remote_addr):
+                flash('Verification failed. Please try again.', 'error')
+                return render_template('register.html', 
+                                       invite_token=invite_token,
+                                       turnstile_enabled=turnstile_enabled,
+                                       turnstile_site_key=TURNSTILE_SITE_KEY)
+        
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '')
         name = request.form.get('name', '').strip()
 
         if not email or not password or not name:
             flash('All fields are required.', 'error')
-            return render_template('register.html', invite_token=invite_token)
+            return render_template('register.html', 
+                                   invite_token=invite_token,
+                                   turnstile_enabled=turnstile_enabled,
+                                   turnstile_site_key=TURNSTILE_SITE_KEY)
 
         if len(password) < 6:
             flash('Password must be at least 6 characters.', 'error')
-            return render_template('register.html', invite_token=invite_token)
+            return render_template('register.html', 
+                                   invite_token=invite_token,
+                                   turnstile_enabled=turnstile_enabled,
+                                   turnstile_site_key=TURNSTILE_SITE_KEY)
 
         db = get_db()
 
@@ -697,7 +770,10 @@ def register():
         existing = db.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
         if existing:
             flash('Email already registered.', 'error')
-            return render_template('register.html', invite_token=invite_token)
+            return render_template('register.html', 
+                                   invite_token=invite_token,
+                                   turnstile_enabled=turnstile_enabled,
+                                   turnstile_site_key=TURNSTILE_SITE_KEY)
 
         # Get default quota
         default_quota = int(db.execute(
@@ -730,7 +806,10 @@ def register():
 
         return redirect(url_for('login'))
 
-    return render_template('register.html', invite_token=invite_token)
+    return render_template('register.html', 
+                           invite_token=invite_token,
+                           turnstile_enabled=turnstile_enabled,
+                           turnstile_site_key=TURNSTILE_SITE_KEY)
 
 
 @app.route('/logout')
@@ -1698,6 +1777,7 @@ def share_folder(folder_id):
 @app.route('/s/<token>', methods=['GET', 'POST'])
 def access_share_link(token):
     """Access a shared file/folder via external link."""
+    turnstile_enabled = bool(TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY)
     db = get_db()
     share = db.execute('''
         SELECT sl.*, f.original_name as file_name, f.stored_name, f.mime_type,
@@ -1728,13 +1808,29 @@ def access_share_link(token):
     # Check password
     if share['password_hash']:
         if request.method == 'POST':
+            # Verify Turnstile token if enabled
+            if turnstile_enabled:
+                turnstile_token = request.form.get('cf-turnstile-response', '')
+                if not verify_turnstile(turnstile_token, request.remote_addr):
+                    flash('Verification failed. Please try again.', 'error')
+                    return render_template('share_password.html', 
+                                           token=token,
+                                           turnstile_enabled=turnstile_enabled,
+                                           turnstile_site_key=TURNSTILE_SITE_KEY)
+            
             password = request.form.get('password', '')
             if not check_password_hash(share['password_hash'], password):
                 flash('Incorrect password.', 'error')
-                return render_template('share_password.html', token=token)
+                return render_template('share_password.html', 
+                                       token=token,
+                                       turnstile_enabled=turnstile_enabled,
+                                       turnstile_site_key=TURNSTILE_SITE_KEY)
             session[f'share_{token}'] = True
         elif not session.get(f'share_{token}'):
-            return render_template('share_password.html', token=token)
+            return render_template('share_password.html', 
+                                   token=token,
+                                   turnstile_enabled=turnstile_enabled,
+                                   turnstile_site_key=TURNSTILE_SITE_KEY)
 
     # Update download count
     db.execute('UPDATE share_links SET download_count = download_count + 1 WHERE token = ?',

@@ -44,6 +44,12 @@
                        minlength="6" placeholder="At least 6 characters">
             </div>
             
+            {% if turnstile_enabled %}
+            <div class="form-group">
+                <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"></div>
+            </div>
+            {% endif %}
+            
             <button type="submit" class="btn btn-primary btn-block">
                 <i class="fas fa-user-plus"></i> Create Account
             </button>
@@ -54,4 +60,10 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% if turnstile_enabled %}
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+{% endif %}
 {% endblock %}

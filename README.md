@@ -71,6 +71,22 @@ python app/main.py
 | `APP_DOMAIN` | Main application domain (for domain separation security) | (not set) |
 | `CONTENT_DOMAIN` | Separate domain for file serving (XSS protection) | (not set) |
 | `UPLOAD_FOLDER` | Absolute path for file storage (can be different drive) | uploads/ |
+| `TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key (bot protection) | (not set) |
+| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret key (bot protection) | (not set) |
+
+### Cloudflare Turnstile (Bot Protection)
+
+Cloudflare Turnstile is a CAPTCHA alternative that helps protect forms from bots without user friction.
+
+1. Go to the [Cloudflare Dashboard](https://dash.cloudflare.com/turnstile) and create a new Turnstile widget
+2. Set `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` in your `.env` file
+
+When both keys are configured, Turnstile protection is automatically enabled on:
+- Login page
+- Registration page
+- Password-protected share links
+
+If these variables are not set, the application works normally without bot protection.
 
 ### Domain Separation (Security)
 
@@ -164,6 +180,7 @@ curl -X DELETE \
 - API token hashing for secure storage
 - Domain separation support for XSS/session hijacking prevention
 - Secure session cookie configuration (HTTPOnly, SameSite)
+- Cloudflare Turnstile bot protection (optional)
 
 ## Screenshots
 
