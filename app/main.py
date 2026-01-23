@@ -219,11 +219,12 @@ def add_security_headers(response):
     # Allow inline styles and scripts for the app, but restrict other content
     csp_directives = [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
+        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://challenges.cloudflare.com",
         "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
         "font-src 'self' https://cdnjs.cloudflare.com",
         "img-src 'self' data: blob:",
         "media-src 'self' blob:",
+        "frame-src https://challenges.cloudflare.com",
         "frame-ancestors 'none'",
         "base-uri 'self'",
         "form-action 'self'",
@@ -411,27 +412,27 @@ def create_admin_user():
 def verify_turnstile(token, remote_ip=None):
     """
     Verify a Cloudflare Turnstile token.
-    
+
     Args:
         token: The cf-turnstile-response token from the form
         remote_ip: Optional remote IP address for additional validation
-        
+
     Returns:
         bool: True if verification succeeded, False otherwise
     """
     if not TURNSTILE_SECRET_KEY:
         return True  # Skip verification if not configured
-    
+
     if not token:
         return False
-    
+
     payload = {
         'secret': TURNSTILE_SECRET_KEY,
         'response': token,
     }
     if remote_ip:
         payload['remoteip'] = remote_ip
-    
+
     try:
         resp = requests.post(TURNSTILE_VERIFY_URL, data=payload, timeout=10)
         resp.raise_for_status()  # Raise exception for HTTP errors
@@ -678,11 +679,11 @@ def login():
             turnstile_token = request.form.get('cf-turnstile-response', '')
             if not verify_turnstile(turnstile_token, request.remote_addr):
                 flash('Verification failed. Please try again.', 'error')
-                return render_template('login.html', 
+                return render_template('login.html',
                                        google_login_enabled=google_login_enabled,
                                        turnstile_enabled=turnstile_enabled,
                                        turnstile_site_key=TURNSTILE_SITE_KEY)
-        
+
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '')
 
@@ -708,7 +709,7 @@ def login():
         else:
             flash('Invalid email or password.', 'error')
 
-    return render_template('login.html', 
+    return render_template('login.html',
                            google_login_enabled=google_login_enabled,
                            turnstile_enabled=turnstile_enabled,
                            turnstile_site_key=TURNSTILE_SITE_KEY)
@@ -741,25 +742,25 @@ def register():
             turnstile_token = request.form.get('cf-turnstile-response', '')
             if not verify_turnstile(turnstile_token, request.remote_addr):
                 flash('Verification failed. Please try again.', 'error')
-                return render_template('register.html', 
+                return render_template('register.html',
                                        invite_token=invite_token,
                                        turnstile_enabled=turnstile_enabled,
                                        turnstile_site_key=TURNSTILE_SITE_KEY)
-        
+
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '')
         name = request.form.get('name', '').strip()
 
         if not email or not password or not name:
             flash('All fields are required.', 'error')
-            return render_template('register.html', 
+            return render_template('register.html',
                                    invite_token=invite_token,
                                    turnstile_enabled=turnstile_enabled,
                                    turnstile_site_key=TURNSTILE_SITE_KEY)
 
         if len(password) < 6:
             flash('Password must be at least 6 characters.', 'error')
-            return render_template('register.html', 
+            return render_template('register.html',
                                    invite_token=invite_token,
                                    turnstile_enabled=turnstile_enabled,
                                    turnstile_site_key=TURNSTILE_SITE_KEY)
@@ -770,7 +771,7 @@ def register():
         existing = db.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
         if existing:
             flash('Email already registered.', 'error')
-            return render_template('register.html', 
+            return render_template('register.html',
                                    invite_token=invite_token,
                                    turnstile_enabled=turnstile_enabled,
                                    turnstile_site_key=TURNSTILE_SITE_KEY)
@@ -806,7 +807,7 @@ def register():
 
         return redirect(url_for('login'))
 
-    return render_template('register.html', 
+    return render_template('register.html',
                            invite_token=invite_token,
                            turnstile_enabled=turnstile_enabled,
                            turnstile_site_key=TURNSTILE_SITE_KEY)
@@ -1813,21 +1814,21 @@ def access_share_link(token):
                 turnstile_token = request.form.get('cf-turnstile-response', '')
                 if not verify_turnstile(turnstile_token, request.remote_addr):
                     flash('Verification failed. Please try again.', 'error')
-                    return render_template('share_password.html', 
+                    return render_template('share_password.html',
                                            token=token,
                                            turnstile_enabled=turnstile_enabled,
                                            turnstile_site_key=TURNSTILE_SITE_KEY)
-            
+
             password = request.form.get('password', '')
             if not check_password_hash(share['password_hash'], password):
                 flash('Incorrect password.', 'error')
-                return render_template('share_password.html', 
+                return render_template('share_password.html',
                                        token=token,
                                        turnstile_enabled=turnstile_enabled,
                                        turnstile_site_key=TURNSTILE_SITE_KEY)
             session[f'share_{token}'] = True
         elif not session.get(f'share_{token}'):
-            return render_template('share_password.html', 
+            return render_template('share_password.html',
                                    token=token,
                                    turnstile_enabled=turnstile_enabled,
                                    turnstile_site_key=TURNSTILE_SITE_KEY)
