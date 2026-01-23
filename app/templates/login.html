@@ -32,6 +32,12 @@
                        placeholder="Enter your password">
             </div>
 
+            {% if turnstile_enabled %}
+            <div class="form-group">
+                <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"></div>
+            </div>
+            {% endif %}
+
             <button type="submit" class="btn btn-primary btn-block">
                 <i class="fas fa-sign-in-alt"></i> Sign In
             </button>
@@ -51,4 +57,10 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% if turnstile_enabled %}
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+{% endif %}
 {% endblock %}
