@@ -569,9 +569,9 @@ ENCRYPTION_CHUNK_SIZE = 64 * 1024
 def encrypt_file_streaming(input_file, output_path, user_id, email):
     """
     Encrypt file using AES-GCM with streaming support.
-    Format: [12-byte nonce][encrypted chunks...][16-byte auth tag]
+    Format: [12-byte base nonce][encrypted chunks...]
     Each chunk is encrypted independently with a derived nonce.
-    Chunk format: [4-byte chunk size][chunk ciphertext]
+    Chunk format: [4-byte chunk size][chunk ciphertext][16-byte auth tag]
     """
     key = derive_user_encryption_key(user_id, email)
     base_nonce = secrets.token_bytes(12)
@@ -723,9 +723,11 @@ def stream_file_response(file_row, as_attachment=False, download_name=None):
             original_name.encode('ascii')
             response.headers['Content-Disposition'] = f'attachment; filename="{original_name}"'
         except UnicodeEncodeError:
-            encoded_name = original_name.encode('utf-8').decode('unicode_escape', errors='ignore')
+            # URL-encode the filename for RFC 5987 compliance
+            from urllib.parse import quote
+            encoded_name = quote(original_name, safe='')
             response.headers['Content-Disposition'] = (
-                f"attachment; filename*=UTF-8''{original_name}"
+                f"attachment; filename*=UTF-8''{encoded_name}"
             )
 
     # Set Content-Length from original (unencrypted) size
@@ -1837,7 +1839,7 @@ def access_share_link(token):
     db = get_db()
     share = db.execute('''
         SELECT sl.*, f.original_name as file_name, f.stored_name, f.mime_type,
-               f.owner_id, f.is_encrypted, fo.name as folder_name
+               f.owner_id, f.is_encrypted, f.size as file_size, fo.name as folder_name
         FROM share_links sl
         LEFT JOIN files f ON sl.file_id = f.id
         LEFT JOIN folders fo ON sl.folder_id = fo.id
@@ -1892,12 +1894,8 @@ def access_share_link(token):
                 'original_name': share['file_name'],
                 'owner_id': share['owner_id'],
                 'is_encrypted': share['is_encrypted'],
-                'size': 0  # We need to get the actual size
+                'size': share['file_size'] or 0
             }
-            # Get the actual file size from db
-            file_info = db.execute('SELECT size FROM files WHERE id = ?', (share['file_id'],)).fetchone()
-            if file_info:
-                file_row['size'] = file_info['size']
 
             return stream_file_response(file_row, as_attachment=True, download_name=share['file_name'])
         except InvalidToken:
