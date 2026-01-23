@@ -1654,8 +1654,9 @@ def get_thumbnail(file_id):
         WHERE f.id = ? AND (
             f.owner_id = ?
             OR EXISTS (SELECT 1 FROM user_shares us WHERE us.file_id = f.id AND us.shared_with_id = ?)
+            OR EXISTS (SELECT 1 FROM user_shares us WHERE us.folder_id = f.folder_id AND us.shared_with_id = ?)
         )
-    ''', (file_id, user_id, user_id)).fetchone()
+    ''', (file_id, user_id, user_id, user_id)).fetchone()
 
     if not file:
         abort(404)
@@ -1751,14 +1752,15 @@ def download_file(file_id):
     db = get_db()
     user_id = session['user_id']
 
-    # Check ownership or shared access
+    # Check ownership or shared access (direct file share or folder share)
     file = db.execute('''
         SELECT f.* FROM files f
         WHERE f.id = ? AND (
             f.owner_id = ?
             OR EXISTS (SELECT 1 FROM user_shares us WHERE us.file_id = f.id AND us.shared_with_id = ?)
+            OR EXISTS (SELECT 1 FROM user_shares us WHERE us.folder_id = f.folder_id AND us.shared_with_id = ?)
         )
-    ''', (file_id, user_id, user_id)).fetchone()
+    ''', (file_id, user_id, user_id, user_id)).fetchone()
 
     if not file:
         flash('File not found.', 'error')
@@ -1791,8 +1793,9 @@ def view_file(file_id):
         WHERE f.id = ? AND (
             f.owner_id = ?
             OR EXISTS (SELECT 1 FROM user_shares us WHERE us.file_id = f.id AND us.shared_with_id = ?)
+            OR EXISTS (SELECT 1 FROM user_shares us WHERE us.folder_id = f.folder_id AND us.shared_with_id = ?)
         )
-    ''', (file_id, user_id, user_id)).fetchone()
+    ''', (file_id, user_id, user_id, user_id)).fetchone()
 
     if not file:
         flash('File not found.', 'error')
@@ -1825,8 +1828,9 @@ def preview_file(file_id):
         WHERE f.id = ? AND (
             f.owner_id = ?
             OR EXISTS (SELECT 1 FROM user_shares us WHERE us.file_id = f.id AND us.shared_with_id = ?)
+            OR EXISTS (SELECT 1 FROM user_shares us WHERE us.folder_id = f.folder_id AND us.shared_with_id = ?)
         )
-    ''', (file_id, user_id, user_id)).fetchone()
+    ''', (file_id, user_id, user_id, user_id)).fetchone()
 
     if not file:
         flash('File not found.', 'error')
