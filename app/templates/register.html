@@ -15,6 +15,7 @@
         </div>
         
         <form method="POST" class="auth-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             {% if invite_token %}
             <input type="hidden" name="invite" value="{{ invite_token }}">
             {% endif %}

@@ -48,6 +48,7 @@
         </div>
         <div class="card-body">
             <form method="POST" action="{{ url_for('update_settings') }}" class="settings-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-row">
                     <div class="form-group">
                         <label for="system_quota">System Quota (GB)</label>
@@ -80,6 +81,7 @@
         </div>
         <div class="card-body">
             <form method="POST" action="{{ url_for('create_invitation') }}" class="invite-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-row">
                     <div class="form-group">
                         <label for="max_uses">Max Uses</label>
@@ -146,6 +148,7 @@
                         <td>{{ invite.expires_at if invite.expires_at else 'Never' }}</td>
                         <td>
                             <form method="POST" action="{{ url_for('delete_invitation', invite_id=invite.id) }}" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-icon danger" title="Delete">
                                     <i class="fas fa-trash"></i>
                                 </button>
@@ -183,11 +186,13 @@
                         <td>{{ user.created_at }}</td>
                         <td>
                             <form method="POST" action="{{ url_for('approve_user', user_id=user.id) }}" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-success btn-sm">
                                     <i class="fas fa-check"></i> Approve
                                 </button>
                             </form>
                             <form method="POST" action="{{ url_for('delete_user', user_id=user.id) }}" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Delete this user?')">
                                     <i class="fas fa-times"></i> Reject
                                 </button>
@@ -247,6 +252,7 @@
                             </button>
                             {% if user.id != session.user_id %}
                             <form method="POST" action="{{ url_for('delete_user', user_id=user.id) }}" style="display: inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-icon danger" title="Delete User"
                                         onclick="return confirm('Delete user {{ user.name }}? This will delete all their files.')">
                                     <i class="fas fa-trash"></i>
@@ -270,6 +276,7 @@
             <button class="modal-close" onclick="closeModal('quota-modal')">&times;</button>
         </div>
         <form id="quota-form" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <p id="quota-user-name"></p>
             <div class="form-group">
                 <label for="quota">Quota (MB)</label>
@@ -291,6 +298,7 @@
             <button class="modal-close" onclick="closeModal('role-modal')">&times;</button>
         </div>
         <form id="role-form" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <p id="role-user-name"></p>
             <div class="form-group">
                 <label for="role">Role</label>

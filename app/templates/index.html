@@ -40,6 +40,7 @@
             <i class="fas fa-folder-open"></i> <span data-i18n="file_explorer.upload_folder">Upload Folder</span>
         </button>
         <form id="upload-form" method="POST" action="{{ url_for('upload_file') }}" enctype="multipart/form-data" style="display: none;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="folder_id" value="{{ current_folder.id if current_folder else '' }}">
             <input type="file" id="file-input" name="files" multiple>
             <input type="file" id="folder-input" name="files" webkitdirectory multiple>
@@ -137,6 +138,7 @@
                                 </button>
                                 <form method="POST" action="{{ url_for('delete_folder', folder_id=folder.id) }}" style="display: inline;" 
                                       class="delete-form" data-confirm-key="confirm.delete_folder">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn-icon danger" title="Delete" data-i18n-title="actions.delete">
                                         <i class="fas fa-trash"></i>
                                     </button>
@@ -199,6 +201,7 @@
                                 </button>
                                 <form method="POST" action="{{ url_for('delete_file', file_id=file.id) }}" style="display: inline;"
                                       class="delete-form" data-confirm-key="confirm.delete_file">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn-icon danger" title="Delete" data-i18n-title="actions.delete">
                                         <i class="fas fa-trash"></i>
                                     </button>
@@ -289,6 +292,7 @@
             <button class="modal-close" onclick="document.getElementById('create-folder-modal').classList.remove('active')">&times;</button>
         </div>
         <form method="POST" action="{{ url_for('create_folder') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="parent_id" value="{{ current_folder.id if current_folder else '' }}">
             <div class="form-group">
                 <label for="folder-name" data-i18n="modals.folder_name">Folder Name</label>
@@ -311,6 +315,7 @@
             <button class="modal-close" onclick="document.getElementById('rename-modal').classList.remove('active')">&times;</button>
         </div>
         <form id="rename-form" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label for="rename-input" data-i18n="modals.new_name">New Name</label>
                 <input type="text" id="rename-input" name="name" required>
@@ -517,6 +522,12 @@ function uploadFilesWithProgress(files, relativePaths) {
     
     const formData = new FormData();
     formData.append('folder_id', currentFolderId);
+    
+    // Add CSRF token for security
+    const csrfToken = document.querySelector('meta[name="csrf-token"]');
+    if (csrfToken) {
+        formData.append('csrf_token', csrfToken.content);
+    }
     
     for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i]);
