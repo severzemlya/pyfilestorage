@@ -3,6 +3,7 @@
   "nav": {
     "files": "Files",
     "admin": "Admin",
+    "settings": "Settings",
     "logout": "Logout"
   },
   "file_explorer": {

@@ -3,6 +3,7 @@
   "nav": {
     "files": "ファイル",
     "admin": "管理",
+    "settings": "設定",
     "logout": "ログアウト"
   },
   "file_explorer": {
