@@ -751,25 +751,44 @@ def decrypt_file_streaming(file_path, user_id, email, chunk_size=ENCRYPTION_CHUN
     key = derive_user_encryption_key(user_id, email)
 
     with open(file_path, 'rb') as f:
+        f.seek(0, 2)
+        total_size = f.tell()
+        f.seek(0)
+
         base_nonce = f.read(12)
         if len(base_nonce) != 12:
             raise ValueError('Invalid encrypted file format: missing nonce')
 
+        bytes_remaining = total_size - 12
+
         chunk_index = 0
         while True:
             # Read chunk size
+            if bytes_remaining == 0:
+                break
             size_bytes = f.read(4)
             if not size_bytes:
                 break
             if len(size_bytes) != 4:
                 raise ValueError('Invalid encrypted file format: truncated chunk size')
 
+            bytes_remaining -= 4
+
             encrypted_chunk_size = int.from_bytes(size_bytes, 'big')
+
+            if encrypted_chunk_size < 16:
+                raise ValueError('Invalid encrypted file format: chunk too small')
+            if encrypted_chunk_size > ENCRYPTION_CHUNK_SIZE + 16:
+                raise ValueError('Invalid encrypted file format: chunk too large')
+            if encrypted_chunk_size > bytes_remaining:
+                raise ValueError('Invalid encrypted file format: chunk exceeds remaining size')
 
             # Read encrypted chunk (ciphertext + tag)
             encrypted_chunk = f.read(encrypted_chunk_size)
             if len(encrypted_chunk) != encrypted_chunk_size:
                 raise ValueError('Invalid encrypted file format: truncated chunk data')
+
+            bytes_remaining -= encrypted_chunk_size
 
             # Last 16 bytes are the auth tag
             ciphertext = encrypted_chunk[:-16]
@@ -1959,7 +1978,16 @@ def download_folder(folder_id):
         yield from stream_zip(generate_zip_entries())
 
     response = Response(generate_zip(), mimetype='application/zip')
-    response.headers['Content-Disposition'] = f'attachment; filename="{folder["name"]}.zip"'
+    zip_name = f"{folder['name']}.zip"
+    try:
+        zip_name.encode('ascii')
+        response.headers['Content-Disposition'] = f'attachment; filename="{zip_name}"'
+    except UnicodeEncodeError:
+        from urllib.parse import quote
+        encoded_name = quote(zip_name, safe='')
+        response.headers['Content-Disposition'] = (
+            f"attachment; filename*=UTF-8''{encoded_name}"
+        )
     return response
 
 
