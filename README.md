@@ -50,20 +50,19 @@ python app/main.py
 
 5. Open your browser and navigate to `http://localhost:5000`
 
-## Default Admin Account
+## Admin Account
 
-- **Email**: admin@local.host
-- **Password**: admin123
-
-**Important**: Change the default password immediately after first login!
+On first run, if no admin exists, the app creates one using `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
+If `ADMIN_PASSWORD` is not set, a temporary password is generated and printed to the server console.
+Change it immediately after login.
 
 ## Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `SECRET_KEY` | Flask secret key for sessions | Random generated |
-| `ADMIN_EMAIL` | Default admin email | admin@local.host |
-| `ADMIN_PASSWORD` | Default admin password | admin123 |
+| `ADMIN_EMAIL` | Admin email for initial account | admin@local.host |
+| `ADMIN_PASSWORD` | Admin password for initial account | (not set) |
 | `FLASK_DEBUG` | Enable debug mode (set to '1' for development) | 0 |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID | (not set) |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | (not set) |
@@ -73,6 +72,7 @@ python app/main.py
 | `UPLOAD_FOLDER` | Absolute path for file storage (can be different drive) | uploads/ |
 | `TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key (bot protection) | (not set) |
 | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret key (bot protection) | (not set) |
+| `TURNSTILE_FAIL_OPEN` | Allow logins when Turnstile verification fails | 0 in production, 1 in debug |
 
 ### Cloudflare Turnstile (Bot Protection)
 
@@ -87,6 +87,9 @@ When both keys are configured, Turnstile protection is automatically enabled on:
 - Password-protected share links
 
 If these variables are not set, the application works normally without bot protection.
+
+By default, Turnstile verification fails closed in production. You can set `TURNSTILE_FAIL_OPEN=1`
+to allow logins when Turnstile is unreachable (not recommended for production).
 
 ### Domain Separation (Security)
 

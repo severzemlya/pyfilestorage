@@ -116,6 +116,16 @@ BLOCKED_EXTENSIONS = set(APP_SETTINGS.get('blocked_extensions', [
     '.dll', '.sys', '.drv'
 ]))
 
+DANGEROUS_INLINE_MIME_TYPES = frozenset({
+    'text/html',
+    'application/xhtml+xml',
+    'image/svg+xml',
+})
+
+DANGEROUS_INLINE_EXTENSIONS = frozenset({
+    '.html', '.htm', '.xhtml', '.svg'
+})
+
 app = Flask(__name__, template_folder='templates', static_folder='static')
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 
@@ -156,6 +166,7 @@ FILE_ENCRYPTION_SECRET = (
 TURNSTILE_SITE_KEY = os.environ.get('TURNSTILE_SITE_KEY', '').strip() or None
 TURNSTILE_SECRET_KEY = os.environ.get('TURNSTILE_SECRET_KEY', '').strip() or None
 TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
+TURNSTILE_FAIL_OPEN = get_env_bool('TURNSTILE_FAIL_OPEN', debug_mode)
 
 if not os.environ.get('FILE_ENCRYPTION_SECRET') and not os.environ.get('SECRET_KEY'):
     print('WARNING: FILE_ENCRYPTION_SECRET or SECRET_KEY is not set. '
@@ -180,7 +191,8 @@ UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 # Routes that are allowed on CONTENT_DOMAIN (file serving only)
 CONTENT_DOMAIN_ALLOWED_ROUTES = frozenset([
     'view_file', 'download_file', 'get_thumbnail', 'static',
-    'access_share_link', 'shared_folder_download'
+    'access_share_link', 'shared_link_file_download_page',
+    'download_shared_link_file', 'shared_folder_download'
 ])
 
 
@@ -414,8 +426,17 @@ def create_admin_user():
     db = get_db()
     admin = db.execute('SELECT * FROM users WHERE role = ?', ('admin',)).fetchone()
     if not admin:
-        password = os.environ.get('ADMIN_PASSWORD', 'admin123')
-        email = os.environ.get('ADMIN_EMAIL', 'admin@local.host')
+        email = os.environ.get('ADMIN_EMAIL', 'admin@local.host').strip()
+        password = os.environ.get('ADMIN_PASSWORD')
+        if password is not None:
+            password = password.strip()
+        if not password:
+            password = secrets.token_urlsafe(18)
+            print('WARNING: ADMIN_PASSWORD is not set. A temporary admin password was generated:')
+            print(f'  {password}')
+            print('Set ADMIN_PASSWORD to control admin credentials and change it after login.')
+        elif len(password) < 12:
+            print('WARNING: ADMIN_PASSWORD is shorter than 12 characters. Consider using a stronger password.')
         db.execute('''INSERT INTO users (email, password_hash, name, role, is_approved)
                       VALUES (?, ?, ?, ?, ?)''',
                    (email, generate_password_hash(password), 'Administrator', 'admin', 1))
@@ -454,9 +475,8 @@ def verify_turnstile(token, remote_ip=None):
         result = resp.json()
         return result.get('success', False)
     except (requests.RequestException, json.JSONDecodeError):
-        # On network errors, fail open to avoid blocking legitimate users
-        # In production, you may want to fail closed instead
-        return True
+        # On network errors, honor TURNSTILE_FAIL_OPEN setting
+        return TURNSTILE_FAIL_OPEN
 
 
 # ==================== Authentication Helpers ====================
@@ -634,6 +654,82 @@ def format_size(size):
             return f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} PB"
+
+
+def parse_db_datetime(value):
+    """Parse a database datetime value into a datetime object."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value)
+
+    text = str(value)
+    for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S'):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def is_share_link_expired(share_row):
+    """Return True if a share link is expired or has invalid expiration."""
+    expires_at_raw = None
+    if hasattr(share_row, 'keys') and 'expires_at' in share_row.keys():
+        expires_at_raw = share_row['expires_at']
+    elif isinstance(share_row, dict):
+        expires_at_raw = share_row.get('expires_at')
+
+    if not expires_at_raw:
+        return False
+
+    expires_at = parse_db_datetime(expires_at_raw)
+    if not expires_at:
+        return True
+    return expires_at < datetime.now()
+
+
+def is_descendant_folder(db, folder_id, root_id, owner_id=None):
+    """Check if folder_id is within the root_id folder tree."""
+    if folder_id is None or root_id is None:
+        return False
+
+    current_id = folder_id
+    while True:
+        if owner_id is None:
+            folder = db.execute(
+                'SELECT id, parent_id FROM folders WHERE id = ?',
+                (current_id,)
+            ).fetchone()
+        else:
+            folder = db.execute(
+                'SELECT id, parent_id FROM folders WHERE id = ? AND owner_id = ?',
+                (current_id, owner_id)
+            ).fetchone()
+
+        if not folder:
+            return False
+        if folder['id'] == root_id:
+            return True
+        if not folder['parent_id']:
+            return False
+        current_id = folder['parent_id']
+
+
+def should_force_download(file_row):
+    """Return True if the file should be forced to download for safety."""
+    mime_type = (file_row['mime_type'] or '').lower()
+    ext = Path(file_row['original_name']).suffix.lower()
+    if mime_type in DANGEROUS_INLINE_MIME_TYPES:
+        return True
+    if ext in DANGEROUS_INLINE_EXTENSIONS:
+        return True
+    return False
 
 
 def get_system_used_space():
@@ -898,7 +994,7 @@ def register():
                            turnstile_site_key=TURNSTILE_SITE_KEY)
 
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST'])
 def logout():
     """User logout."""
     session.clear()
@@ -1104,22 +1200,9 @@ def view_shared_folder(folder_id):
         return redirect(url_for('index'))
 
     # Verify subfolder is within the shared folder tree
-    if subfolder_id:
-        # Walk up the tree to verify this subfolder is under the shared root
-        check_folder = current_folder
-        valid = False
-        while check_folder:
-            if check_folder['id'] == folder_id:
-                valid = True
-                break
-            if check_folder['parent_id']:
-                check_folder = db.execute('SELECT * FROM folders WHERE id = ?',
-                                          (check_folder['parent_id'],)).fetchone()
-            else:
-                break
-        if not valid:
-            flash('You do not have access to this folder.', 'error')
-            return redirect(url_for('index'))
+    if subfolder_id and not is_descendant_folder(db, subfolder_id, folder_id):
+        flash('You do not have access to this folder.', 'error')
+        return redirect(url_for('index'))
 
     # Build breadcrumbs from current folder up to the shared root
     breadcrumbs = []
@@ -1191,26 +1274,12 @@ def download_shared_folder(folder_id, target_folder_id):
         return redirect(url_for('index'))
 
     # Verify target folder is within the shared folder tree
-    if target_folder_id != folder_id:
-        check_folder = target_folder
-        valid = False
-        while check_folder:
-            if check_folder['id'] == folder_id:
-                valid = True
-                break
-            if check_folder['parent_id']:
-                check_folder = db.execute('SELECT * FROM folders WHERE id = ?',
-                                          (check_folder['parent_id'],)).fetchone()
-            else:
-                break
-        if not valid:
-            flash('You do not have access to this folder.', 'error')
-            return redirect(url_for('index'))
+    if target_folder_id != folder_id and not is_descendant_folder(db, target_folder_id, folder_id):
+        flash('You do not have access to this folder.', 'error')
+        return redirect(url_for('index'))
 
     # Create in-memory ZIP file
     zip_buffer = io.BytesIO()
-    folder_owner_id = target_folder['owner_id']
-
     def add_folder_to_zip(zip_file, fid, path=''):
         """Recursively add folder contents to ZIP."""
         # Get files in folder
@@ -1267,7 +1336,7 @@ def create_folder_in_shared(folder_id):
         return redirect(url_for('index'))
 
     name = request.form.get('name', '').strip()
-    parent_id = request.form.get('parent_id', type=int)
+    parent_id = request.form.get('parent_id', type=int) or folder_id
 
     if not name:
         flash('Folder name is required.', 'error')
@@ -1277,21 +1346,9 @@ def create_folder_in_shared(folder_id):
     name = re.sub(r'[<>:"/\\|?*]', '', name)[:255]
 
     # Verify parent folder is within the shared folder tree
-    if parent_id and parent_id != folder_id:
-        check_folder = db.execute('SELECT * FROM folders WHERE id = ?', (parent_id,)).fetchone()
-        valid = False
-        while check_folder:
-            if check_folder['id'] == folder_id:
-                valid = True
-                break
-            if check_folder['parent_id']:
-                check_folder = db.execute('SELECT * FROM folders WHERE id = ?',
-                                          (check_folder['parent_id'],)).fetchone()
-            else:
-                break
-        if not valid:
-            flash('Invalid parent folder.', 'error')
-            return redirect(url_for('view_shared_folder', folder_id=folder_id))
+    if not is_descendant_folder(db, parent_id, folder_id):
+        flash('Invalid parent folder.', 'error')
+        return redirect(url_for('view_shared_folder', folder_id=folder_id))
 
     # Check for duplicate name in same location
     existing = db.execute('''
@@ -1333,28 +1390,16 @@ def upload_to_shared_folder(folder_id):
         flash('You do not have write access to this folder.', 'error')
         return redirect(url_for('index'))
 
-    target_folder_id = request.form.get('target_folder_id', type=int)
+    target_folder_id = request.form.get('target_folder_id', type=int) or folder_id
 
     if 'files' not in request.files:
         flash('No files selected.', 'error')
         return redirect(url_for('view_shared_folder', folder_id=folder_id))
 
     # Verify target folder is within the shared folder tree
-    if target_folder_id and target_folder_id != folder_id:
-        check_folder = db.execute('SELECT * FROM folders WHERE id = ?', (target_folder_id,)).fetchone()
-        valid = False
-        while check_folder:
-            if check_folder['id'] == folder_id:
-                valid = True
-                break
-            if check_folder['parent_id']:
-                check_folder = db.execute('SELECT * FROM folders WHERE id = ?',
-                                          (check_folder['parent_id'],)).fetchone()
-            else:
-                break
-        if not valid:
-            flash('Invalid target folder.', 'error')
-            return redirect(url_for('view_shared_folder', folder_id=folder_id))
+    if not is_descendant_folder(db, target_folder_id, folder_id):
+        flash('Invalid target folder.', 'error')
+        return redirect(url_for('view_shared_folder', folder_id=folder_id))
 
     files = request.files.getlist('files')
     owner_id = share['owner_id']
@@ -1825,6 +1870,38 @@ def download_folder(folder_id):
     )
 
 
+@app.route('/file/<int:file_id>/download-page')
+@login_required
+def download_file_page(file_id):
+    """Show a download confirmation page for a file."""
+    db = get_db()
+    user_id = session['user_id']
+
+    file = db.execute('''
+        SELECT f.* FROM files f
+        WHERE f.id = ? AND (
+            f.owner_id = ?
+            OR EXISTS (SELECT 1 FROM user_shares us WHERE us.file_id = f.id AND us.shared_with_id = ?)
+            OR EXISTS (SELECT 1 FROM user_shares us WHERE us.folder_id = f.folder_id AND us.shared_with_id = ?)
+        )
+    ''', (file_id, user_id, user_id, user_id)).fetchone()
+
+    if not file:
+        flash('File not found.', 'error')
+        return redirect(url_for('index'))
+
+    file_path = UPLOAD_FOLDER / file['stored_name']
+    if not file_path.exists():
+        flash('File not found on server.', 'error')
+        return redirect(url_for('index'))
+
+    download_url = url_for('download_file', file_id=file_id)
+    return render_template('download.html',
+                           file=file,
+                           download_url=download_url,
+                           format_size=format_size)
+
+
 @app.route('/file/<int:file_id>/download')
 def download_file(file_id):
     """Download a file. Supports both session and token-based auth."""
@@ -1917,7 +1994,12 @@ def view_file(file_id):
         abort(404)
 
     try:
-        return stream_file_response(file, as_attachment=False)
+        force_download = should_force_download(file)
+        return stream_file_response(
+            file,
+            as_attachment=force_download,
+            download_name=file['original_name'] if force_download else None
+        )
     except InvalidToken:
         abort(500)  # Decryption failed
     except Exception:
@@ -2256,16 +2338,8 @@ def access_share_link(token):
         return redirect(url_for('login'))
 
     # Check expiration
-    if share['expires_at']:
-        try:
-            expires_at = datetime.strptime(share['expires_at'], '%Y-%m-%d %H:%M:%S.%f')
-        except ValueError:
-            try:
-                expires_at = datetime.strptime(share['expires_at'], '%Y-%m-%d %H:%M:%S')
-            except ValueError:
-                expires_at = datetime.fromisoformat(share['expires_at'])
-        if expires_at < datetime.now():
-            flash('Share link has expired.', 'error')
+    if is_share_link_expired(share):
+        flash('Share link has expired.', 'error')
         return redirect(url_for('login'))
 
     # Check password
@@ -2301,23 +2375,21 @@ def access_share_link(token):
     db.commit()
 
     if share['file_id']:
-        # Serve file
-        file_path = UPLOAD_FOLDER / share['stored_name']
+        file = db.execute('SELECT * FROM files WHERE id = ?', (share['file_id'],)).fetchone()
+        if not file:
+            flash('File not found.', 'error')
+            return redirect(url_for('login'))
+
+        file_path = UPLOAD_FOLDER / file['stored_name']
         if not file_path.exists():
             flash('File not found.', 'error')
             return redirect(url_for('login'))
 
-        try:
-            data = load_file_bytes(share)
-        except InvalidToken:
-            flash('File could not be decrypted.', 'error')
-            return redirect(url_for('login'))
-        except Exception as exc:
-            flash(f'Failed to read file: {exc}', 'error')
-            return redirect(url_for('login'))
-
-        return send_file(io.BytesIO(data), as_attachment=True,
-                         download_name=share['file_name'], mimetype=share['mime_type'])
+        download_url = url_for('download_shared_link_file', token=token, file_id=file['id'])
+        return render_template('download.html',
+                               file=file,
+                               download_url=download_url,
+                               format_size=format_size)
 
     elif share['folder_id']:
         # List folder contents
@@ -2336,6 +2408,52 @@ def access_share_link(token):
     return redirect(url_for('login'))
 
 
+@app.route('/s/<token>/file/<int:file_id>')
+def shared_link_file_download_page(token, file_id):
+    """Show download page for a file inside a shared folder link."""
+    db = get_db()
+    share = db.execute('''
+        SELECT sl.*, fo.name as folder_name FROM share_links sl
+        LEFT JOIN folders fo ON sl.folder_id = fo.id
+        WHERE sl.token = ?
+    ''', (token,)).fetchone()
+
+    if not share:
+        flash('Share link not found.', 'error')
+        return redirect(url_for('login'))
+
+    if is_share_link_expired(share):
+        flash('Share link has expired.', 'error')
+        return redirect(url_for('login'))
+
+    if share['password_hash'] and not session.get(f'share_{token}'):
+        return redirect(url_for('access_share_link', token=token))
+
+    if share['file_id']:
+        if share['file_id'] != file_id:
+            flash('File not found.', 'error')
+            return redirect(url_for('access_share_link', token=token))
+        file = db.execute('SELECT * FROM files WHERE id = ?', (file_id,)).fetchone()
+    else:
+        file = db.execute('SELECT * FROM files WHERE id = ? AND folder_id = ?',
+                          (file_id, share['folder_id'])).fetchone()
+
+    if not file:
+        flash('File not found.', 'error')
+        return redirect(url_for('access_share_link', token=token))
+
+    file_path = UPLOAD_FOLDER / file['stored_name']
+    if not file_path.exists():
+        flash('File not found on server.', 'error')
+        return redirect(url_for('access_share_link', token=token))
+
+    download_url = url_for('download_shared_link_file', token=token, file_id=file['id'])
+    return render_template('download.html',
+                           file=file,
+                           download_url=download_url,
+                           format_size=format_size)
+
+
 @app.route('/s/<token>/upload', methods=['POST'])
 def upload_to_shared_link(token):
     """Upload files to a shared folder via share link (requires write permission)."""
@@ -2350,12 +2468,19 @@ def upload_to_shared_link(token):
         flash('You do not have upload access to this folder.', 'error')
         return redirect(url_for('access_share_link', token=token))
 
+    if is_share_link_expired(share):
+        flash('Share link has expired.', 'error')
+        return redirect(url_for('login'))
+
     # Check if password authentication is required
     if share['password_hash'] and not session.get(f'share_{token}'):
         flash('Please enter the password to upload files.', 'error')
         return redirect(url_for('access_share_link', token=token))
 
     target_folder_id = request.form.get('target_folder_id', type=int) or share['folder_id']
+    if not is_descendant_folder(db, target_folder_id, share['folder_id'], owner_id=share['owner_id']):
+        flash('Invalid target folder.', 'error')
+        return redirect(url_for('access_share_link', token=token))
 
     if 'files' not in request.files:
         flash('No files selected.', 'error')
@@ -2432,6 +2557,10 @@ def create_folder_in_shared_link(token):
         flash('You do not have permission to create folders.', 'error')
         return redirect(url_for('access_share_link', token=token))
 
+    if is_share_link_expired(share):
+        flash('Share link has expired.', 'error')
+        return redirect(url_for('login'))
+
     # Check if password authentication is required
     if share['password_hash'] and not session.get(f'share_{token}'):
         flash('Please enter the password first.', 'error')
@@ -2446,6 +2575,10 @@ def create_folder_in_shared_link(token):
 
     # Sanitize folder name
     name = re.sub(r'[<>:"/\\|?*]', '', name)[:255]
+
+    if not is_descendant_folder(db, parent_id, share['folder_id'], owner_id=share['owner_id']):
+        flash('Invalid parent folder.', 'error')
+        return redirect(url_for('access_share_link', token=token))
 
     # Check for duplicate name in same location
     existing = db.execute('''
@@ -2478,15 +2611,25 @@ def download_shared_link_file(token, file_id):
         flash('Share link not found.', 'error')
         return redirect(url_for('login'))
 
+    if is_share_link_expired(share):
+        flash('Share link has expired.', 'error')
+        return redirect(url_for('login'))
+
     # Check if password authentication is required
     if share['password_hash'] and not session.get(f'share_{token}'):
         return redirect(url_for('access_share_link', token=token))
 
-    # Check that the file is in the shared folder
-    file = db.execute('''
-        SELECT f.* FROM files f
-        WHERE f.id = ? AND f.folder_id = ?
-    ''', (file_id, share['folder_id'])).fetchone()
+    # Check that the file is allowed for this share link
+    if share['file_id']:
+        if share['file_id'] != file_id:
+            flash('File not found.', 'error')
+            return redirect(url_for('access_share_link', token=token))
+        file = db.execute('SELECT f.* FROM files f WHERE f.id = ?', (file_id,)).fetchone()
+    else:
+        file = db.execute('''
+            SELECT f.* FROM files f
+            WHERE f.id = ? AND f.folder_id = ?
+        ''', (file_id, share['folder_id'])).fetchone()
 
     if not file:
         flash('File not found.', 'error')
@@ -3005,7 +3148,7 @@ def main():
     debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
 
     print("Starting PyFileStorage server...")
-    print("Default admin: admin@local.host / admin123")
+    print("Set ADMIN_EMAIL and ADMIN_PASSWORD to configure admin credentials.")
     if debug_mode:
         print("WARNING: Debug mode is enabled. Do not use in production!")
     app.run(host='0.0.0.0', port=5000, debug=debug_mode)

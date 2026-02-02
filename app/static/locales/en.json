@@ -86,6 +86,12 @@
     "can_edit": "Can edit",
     "read_only": "Read only"
   },
+  "download": {
+    "title": "Download File",
+    "notice": "This file will download to your device. Only download if you trust the source.",
+    "size": "Size",
+    "type": "Type"
+  },
   "side_panel": {
     "details": "Details",
     "select_item": "Select an item to view details",

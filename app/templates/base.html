@@ -77,9 +77,12 @@
                 <button id="theme-toggle" class="theme-btn" title="Toggle theme">
                     <i class="fas fa-moon"></i>
                 </button>
-                <a href="{{ url_for('logout') }}" class="sidebar-logout" title="Logout">
-                    <i class="fas fa-sign-out-alt"></i>
-                </a>
+                <form method="POST" action="{{ url_for('logout') }}" class="sidebar-logout-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="sidebar-logout" title="Logout">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </form>
             </div>
         </div>
     </aside>

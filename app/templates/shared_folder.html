@@ -94,7 +94,7 @@
                         <span class="file-size">{{ format_size(file.size) }}</span>
                     </div>
                     <div class="file-actions">
-                        <a href="{{ url_for('download_shared_link_file', token=share.token, file_id=file.id) }}" class="btn-icon" title="Download">
+                        <a href="{{ url_for('shared_link_file_download_page', token=share.token, file_id=file.id) }}" class="btn-icon" title="Download">
                             <i class="fas fa-download"></i>
                         </a>
                     </div>
