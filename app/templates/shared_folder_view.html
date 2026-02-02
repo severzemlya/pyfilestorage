@@ -89,7 +89,7 @@
                                 <a href="{{ url_for('view_shared_folder', folder_id=root_folder_id, subfolder=folder.id) }}" class="file-name-link">{{ folder.name }}</a>
                             </td>
                             <td class="size-col">—</td>
-                            <td class="date-col">{{ folder.created_at.strftime('%Y-%m-%d %H:%M') if folder.created_at else '—' }}</td>
+                            <td class="date-col">{{ format_datetime(folder.created_at) if folder.created_at else '—' }}</td>
                             <td class="actions-col">
                                 <div class="row-actions">
                                     <a href="{{ url_for('download_shared_folder', folder_id=root_folder_id, target_folder_id=folder.id) }}" class="btn-icon" title="Download" data-i18n-title="actions.download">
@@ -131,7 +131,7 @@
                                 <span class="file-name-text" title="{{ file.original_name }}">{{ file.original_name }}</span>
                             </td>
                             <td class="size-col">{{ format_size(file.size) }}</td>
-                            <td class="date-col">{{ file.created_at.strftime('%Y-%m-%d %H:%M') if file.created_at else '—' }}</td>
+                            <td class="date-col">{{ format_datetime(file.created_at) if file.created_at else '—' }}</td>
                             <td class="actions-col">
                                 <div class="row-actions">
                                     {% if get_file_type(file.mime_type) in ['image', 'video', 'audio', 'pdf'] %}

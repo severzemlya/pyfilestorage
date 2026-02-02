@@ -14,9 +14,10 @@ import secrets
 import sqlite3
 import sys
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 from authlib.integrations.flask_client import OAuth
@@ -102,6 +103,7 @@ OG_IMAGE = APP_SETTINGS.get('og_image', '/static/og-image.png')
 # CONTENT_DOMAIN: Separate domain for serving uploaded files
 APP_DOMAIN = os.environ.get('APP_DOMAIN', '').strip() or None
 CONTENT_DOMAIN = os.environ.get('CONTENT_DOMAIN', '').strip() or None
+APP_TIMEZONE = os.environ.get('APP_TIMEZONE', 'UTC').strip() or 'UTC'
 
 # Quota settings
 MAX_FILE_SIZE = APP_SETTINGS.get('max_file_size', 100 * 1024 * 1024)
@@ -137,6 +139,29 @@ def get_env_bool(name, default=False):
     if value is None:
         return default
     return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def utcnow():
+    """Return naive UTC datetime for storage consistency."""
+    return datetime.utcnow()
+
+
+def get_app_timezone():
+    """Return configured application timezone, falling back to UTC."""
+    try:
+        return ZoneInfo(APP_TIMEZONE)
+    except Exception:
+        return timezone.utc
+
+
+def to_local_time(value):
+    """Convert a datetime value to the configured app timezone."""
+    if value is None:
+        return None
+
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(get_app_timezone())
 
 
 # Set MAX_CONTENT_LENGTH to None if max_file_size is 0 or null (unlimited)
@@ -528,7 +553,7 @@ def api_auth_required(f):
 
         # Update last used
         db.execute('UPDATE api_tokens SET last_used = ? WHERE token = ?',
-                   (datetime.now(), token_hash))
+                   (utcnow(), token_hash))
         db.commit()
 
         g.api_user = dict(api_token)
@@ -665,7 +690,7 @@ def parse_db_datetime(value):
     if isinstance(value, datetime):
         return value
     if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(value)
+        return datetime.fromtimestamp(value, tz=timezone.utc)
 
     text = str(value)
     for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S'):
@@ -677,6 +702,14 @@ def parse_db_datetime(value):
         return datetime.fromisoformat(text)
     except ValueError:
         return None
+
+
+def format_datetime(value, fmt='%Y-%m-%d %H:%M'):
+    """Format a datetime value in the configured app timezone."""
+    parsed = parse_db_datetime(value)
+    if not parsed:
+        return None
+    return to_local_time(parsed).strftime(fmt)
 
 
 def is_share_link_expired(share_row):
@@ -693,7 +726,7 @@ def is_share_link_expired(share_row):
     expires_at = parse_db_datetime(expires_at_raw)
     if not expires_at:
         return True
-    return expires_at < datetime.now()
+    return expires_at < utcnow()
 
 
 def is_descendant_folder(db, folder_id, root_id, owner_id=None):
@@ -1013,7 +1046,7 @@ def login():
             session['role'] = user['role']
 
             db.execute('UPDATE users SET last_login = ? WHERE id = ?',
-                       (datetime.now(), user['id']))
+                    (utcnow(), user['id']))
             db.commit()
 
             flash('Logged in successfully!', 'success')
@@ -1040,7 +1073,7 @@ def register():
             SELECT * FROM invitations WHERE token = ?
             AND (expires_at IS NULL OR expires_at > ?)
             AND (max_uses = 0 OR current_uses < max_uses)
-        ''', (invite_token, datetime.now())).fetchone()
+        ''', (invite_token, utcnow())).fetchone()
 
         if invitation:
             auto_approve = bool(invitation['auto_approve'])
@@ -1202,7 +1235,7 @@ def login_google_callback():
     session['role'] = user['role']
 
     db.execute('UPDATE users SET last_login = ? WHERE id = ?',
-               (datetime.now(), user['id']))
+               (utcnow(), user['id']))
     db.commit()
 
     flash('Logged in with Google.', 'success')
@@ -2003,9 +2036,10 @@ def download_folder(folder_id):
 
                 # Get modification time (or use current time)
                 try:
-                    mtime = datetime.strptime(file_row['created_at'], '%Y-%m-%d %H:%M:%S')
+                    parsed_mtime = parse_db_datetime(file_row['created_at'])
+                    mtime = parsed_mtime if parsed_mtime else utcnow()
                 except (ValueError, TypeError):
-                    mtime = datetime.now()
+                    mtime = utcnow()
 
                 yield (
                     file_path,
@@ -2323,7 +2357,7 @@ def share_file(file_id):
 
             expires_at = None
             if expires_days:
-                expires_at = datetime.now() + timedelta(days=expires_days)
+                expires_at = utcnow() + timedelta(days=expires_days)
 
             password_hash = None
             if password:
@@ -2419,7 +2453,7 @@ def share_folder(folder_id):
 
             expires_at = None
             if expires_days:
-                expires_at = datetime.now() + timedelta(days=expires_days)
+                expires_at = utcnow() + timedelta(days=expires_days)
 
             password_hash = None
             if password:
@@ -2982,7 +3016,7 @@ def create_invitation():
     token = secrets.token_urlsafe(32)
     expires_at = None
     if expires_days:
-        expires_at = datetime.now() + timedelta(days=expires_days)
+        expires_at = utcnow() + timedelta(days=expires_days)
 
     db = get_db()
     db.execute('''
@@ -3274,13 +3308,15 @@ def server_error(e):
 def inject_globals():
     """Inject global variables into templates."""
     return {
-        'current_year': datetime.now().year,
+        'current_year': to_local_time(utcnow()).year,
         'app_name': APP_NAME,
         'site_url': SITE_URL,
         'site_description': SITE_DESCRIPTION,
         'og_image': OG_IMAGE,
         'content_domain': CONTENT_DOMAIN,
-        'app_domain': APP_DOMAIN
+        'app_domain': APP_DOMAIN,
+        'format_datetime': format_datetime,
+        'app_timezone': APP_TIMEZONE
     }
 
 

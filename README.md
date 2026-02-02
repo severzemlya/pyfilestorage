@@ -73,6 +73,7 @@ Change it immediately after login.
 | `TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key (bot protection) | (not set) |
 | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret key (bot protection) | (not set) |
 | `TURNSTILE_FAIL_OPEN` | Allow logins when Turnstile verification fails | 0 in production, 1 in debug |
+| `APP_TIMEZONE` | Timezone for displaying timestamps (e.g. `UTC`, `Asia/Tokyo`) | UTC |
 
 ### Cloudflare Turnstile (Bot Protection)
 
