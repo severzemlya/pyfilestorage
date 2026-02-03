@@ -49,6 +49,21 @@ def load_settings(base_dir):
     return default_settings
 
 
+def load_environment(base_dir):
+    env_candidates = [
+        Path.cwd() / '.env',
+        base_dir / '.env',
+        base_dir.parent / '.env'
+    ]
+    for candidate in env_candidates:
+        if candidate.exists():
+            load_dotenv(candidate)
+            return candidate
+
+    load_dotenv()
+    return None
+
+
 def get_secret():
     secret = os.environ.get('FILE_ENCRYPTION_SECRET') or os.environ.get('SECRET_KEY')
     if not secret:
@@ -138,14 +153,17 @@ def main():
     parser.add_argument('--upload-folder', type=str, default='', help='Override upload folder path')
     args = parser.parse_args()
 
-    load_dotenv()
-
     base_dir = Path(__file__).parent.absolute()
+    load_environment(base_dir)
     settings = load_settings(base_dir)
     secret = get_secret()
 
     db_path = Path(args.db_path) if args.db_path else (base_dir / settings.get('database_path', 'storage.db'))
-    upload_folder = Path(args.upload_folder) if args.upload_folder else (base_dir / settings.get('upload_folder', 'uploads'))
+    if args.upload_folder:
+        upload_folder = Path(args.upload_folder)
+    else:
+        upload_env = os.environ.get('UPLOAD_FOLDER', '').strip()
+        upload_folder = Path(upload_env) if upload_env else (base_dir / settings.get('upload_folder', 'uploads'))
 
     if not db_path.exists():
         print(f'Database not found: {db_path}')
