@@ -266,6 +266,14 @@ def add_security_headers(response):
     frame_src_values = ["'self'", "https://challenges.cloudflare.com"]
     if CONTENT_DOMAIN:
         frame_src_values.append(f"https://{CONTENT_DOMAIN}")
+    img_src_values = ["'self'", 'data:', 'blob:']
+    media_src_values = ["'self'", 'blob:']
+    if CONTENT_DOMAIN:
+        img_src_values.append(f"https://{CONTENT_DOMAIN}")
+        media_src_values.append(f"https://{CONTENT_DOMAIN}")
+        if os.environ.get('FLASK_DEBUG', '0') == '1':
+            img_src_values.append(f"http://{CONTENT_DOMAIN}")
+            media_src_values.append(f"http://{CONTENT_DOMAIN}")
     frame_ancestors_directive = "frame-ancestors 'none'"
     if CONTENT_DOMAIN and APP_DOMAIN and host == CONTENT_DOMAIN:
         frame_ancestors_directive = f"frame-ancestors https://{APP_DOMAIN}"
@@ -274,8 +282,8 @@ def add_security_headers(response):
         "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://challenges.cloudflare.com",
         "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
         "font-src 'self' https://cdnjs.cloudflare.com",
-        "img-src 'self' data: blob:",
-        "media-src 'self' blob:",
+        f"img-src {' '.join(img_src_values)}",
+        f"media-src {' '.join(media_src_values)}",
         f"frame-src {' '.join(frame_src_values)}",
         frame_ancestors_directive,
         "base-uri 'self'",
