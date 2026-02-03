@@ -148,9 +148,16 @@ def utcnow():
 
 def get_app_timezone():
     """Return configured application timezone, falling back to UTC."""
+    tz_name = APP_TIMEZONE.strip() if APP_TIMEZONE else ''
+    if not tz_name:
+        return timezone.utc
+
     try:
-        return ZoneInfo(APP_TIMEZONE)
+        return ZoneInfo(tz_name)
     except Exception:
+        tz_upper = tz_name.upper()
+        if tz_upper in {'JST', 'ASIA/TOKYO', 'TOKYO'}:
+            return timezone(timedelta(hours=9))
         return timezone.utc
 
 
@@ -710,6 +717,14 @@ def format_datetime(value, fmt='%Y-%m-%d %H:%M'):
     if not parsed:
         return None
     return to_local_time(parsed).strftime(fmt)
+
+
+def format_datetime_iso(value):
+    """Format a datetime value as ISO 8601 in the app timezone."""
+    parsed = parse_db_datetime(value)
+    if not parsed:
+        return None
+    return to_local_time(parsed).isoformat(timespec='seconds')
 
 
 def is_share_link_expired(share_row):
@@ -3316,6 +3331,7 @@ def inject_globals():
         'content_domain': CONTENT_DOMAIN,
         'app_domain': APP_DOMAIN,
         'format_datetime': format_datetime,
+        'format_datetime_iso': format_datetime_iso,
         'app_timezone': APP_TIMEZONE
     }
 

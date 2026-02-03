@@ -113,7 +113,7 @@
                 <tbody id="file-list">
                     <!-- Folders -->
                     {% for folder in folders %}
-                    <tr class="file-row folder-row" data-type="folder" data-id="{{ folder.id }}" data-name="{{ folder.name }}" data-size="0" data-date="{{ folder.created_at }}">
+                    <tr class="file-row folder-row" data-type="folder" data-id="{{ folder.id }}" data-name="{{ folder.name }}" data-size="0" data-date="{{ format_datetime_iso(folder.created_at) if folder.created_at else '' }}">
                         <td class="checkbox-col">
                             <input type="checkbox" class="item-checkbox" data-type="folder" data-id="{{ folder.id }}">
                         </td>
@@ -152,7 +152,7 @@
 
                     <!-- Files -->
                     {% for file in files %}
-                    <tr class="file-row" data-type="file" data-id="{{ file.id }}" data-name="{{ file.original_name }}" data-size="{{ file.size }}" data-date="{{ file.created_at }}" draggable="true">
+                    <tr class="file-row" data-type="file" data-id="{{ file.id }}" data-name="{{ file.original_name }}" data-size="{{ file.size }}" data-date="{{ format_datetime_iso(file.created_at) if file.created_at else '' }}" draggable="true">
                         <td class="checkbox-col">
                             <input type="checkbox" class="item-checkbox" data-type="file" data-id="{{ file.id }}">
                         </td>

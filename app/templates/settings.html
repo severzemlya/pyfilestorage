@@ -133,8 +133,8 @@
                         {% for token in api_tokens %}
                         <tr>
                             <td>{{ token.name }}</td>
-                            <td>{{ token.created_at }}</td>
-                            <td>{{ token.last_used if token.last_used else 'Never' }}</td>
+                            <td>{{ format_datetime(token.created_at) if token.created_at else '—' }}</td>
+                            <td>{{ format_datetime(token.last_used) if token.last_used else 'Never' }}</td>
                             <td>
                                 <form method="POST" action="{{ url_for('delete_api_token', token_id=token.id) }}" style="display: inline;">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

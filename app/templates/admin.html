@@ -145,7 +145,7 @@
                         <td>{{ invite.created_by_name }}</td>
                         <td>{{ invite.current_uses }}/{{ invite.max_uses if invite.max_uses > 0 else '∞' }}</td>
                         <td>{{ 'Yes' if invite.auto_approve else 'No' }}</td>
-                        <td>{{ invite.expires_at if invite.expires_at else 'Never' }}</td>
+                        <td>{{ format_datetime(invite.expires_at) if invite.expires_at else 'Never' }}</td>
                         <td>
                             <form method="POST" action="{{ url_for('delete_invitation', invite_id=invite.id) }}" style="display: inline;">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -183,7 +183,7 @@
                     <tr>
                         <td>{{ user.name }}</td>
                         <td>{{ user.email }}</td>
-                        <td>{{ user.created_at }}</td>
+                        <td>{{ format_datetime(user.created_at) if user.created_at else '—' }}</td>
                         <td>
                             <form method="POST" action="{{ url_for('approve_user', user_id=user.id) }}" style="display: inline;">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
