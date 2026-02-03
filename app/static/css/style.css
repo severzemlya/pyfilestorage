@@ -151,6 +151,13 @@ a:hover {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    position: relative;
+}
+
+.sidebar-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .sidebar-brand {
@@ -181,6 +188,25 @@ a:hover {
     color: var(--text-muted);
     cursor: pointer;
     border-radius: 6px;
+}
+
+.sidebar-collapse {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.sidebar-collapse:hover {
+    background: var(--hover-bg);
+    color: var(--text-color);
 }
 
 .sidebar-toggle-mobile:hover {
@@ -289,6 +315,59 @@ a:hover {
     text-decoration: none;
 }
 
+/* Sidebar collapsed state */
+html.sidebar-collapsed .sidebar {
+    width: 76px;
+}
+
+html.sidebar-collapsed .main-content.with-sidebar {
+    margin-left: 76px;
+}
+
+html.sidebar-collapsed body.has-sidebar .footer {
+    margin-left: 76px;
+}
+
+html.sidebar-collapsed .sidebar-header {
+    padding: 16px 12px;
+    justify-content: center;
+}
+
+html.sidebar-collapsed .sidebar-header-actions {
+    position: absolute;
+    right: 12px;
+}
+
+html.sidebar-collapsed .sidebar-brand {
+    gap: 0;
+    justify-content: center;
+}
+
+html.sidebar-collapsed .sidebar-brand-text,
+html.sidebar-collapsed .sidebar-link span,
+html.sidebar-collapsed .sidebar-user-name {
+    display: none;
+}
+
+html.sidebar-collapsed .sidebar-link {
+    justify-content: center;
+    padding: 12px;
+}
+
+html.sidebar-collapsed .sidebar-user {
+    justify-content: center;
+    padding: 6px 0;
+}
+
+html.sidebar-collapsed .sidebar-actions {
+    flex-direction: column;
+    align-items: center;
+}
+
+html.sidebar-collapsed .sidebar-footer {
+    padding: 12px 8px;
+}
+
 /* Mobile Header */
 .mobile-header {
     display: none;
@@ -390,6 +469,20 @@ body.has-sidebar .footer {
         display: flex;
         align-items: center;
         justify-content: center;
+    }
+
+    .sidebar-collapse {
+        display: none;
+    }
+
+    html.sidebar-collapsed .sidebar {
+        width: 250px;
+    }
+
+    html.sidebar-collapsed .sidebar-brand-text,
+    html.sidebar-collapsed .sidebar-link span,
+    html.sidebar-collapsed .sidebar-user-name {
+        display: inline;
     }
 
     .mobile-header {

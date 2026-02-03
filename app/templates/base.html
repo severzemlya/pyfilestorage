@@ -21,9 +21,14 @@
     <!-- Apply theme immediately to prevent flash -->
     <script>
         (function() {
-            var saved = localStorage.getItem('theme');
-            var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            var savedTheme = localStorage.getItem('theme');
+            var theme = savedTheme || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
             document.documentElement.setAttribute('data-theme', theme);
+
+            var collapsed = localStorage.getItem('sidebar_collapsed');
+            if (collapsed === '1' && window.innerWidth > 768) {
+                document.documentElement.classList.add('sidebar-collapsed');
+            }
         })();
     </script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -35,13 +40,18 @@
     <!-- Left Sidebar Navigation -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
-            <a href="{{ url_for('index') }}" class="sidebar-brand">
+            <a href="{{ url_for('index') }}" class="sidebar-brand" title="{{ app_name }}">
                 <i class="fas fa-cloud"></i>
                 <span class="sidebar-brand-text">{{ app_name }}</span>
             </a>
-            <button class="sidebar-toggle-mobile" id="sidebar-close" title="Close menu">
-                <i class="fas fa-times"></i>
-            </button>
+            <div class="sidebar-header-actions">
+                <button class="sidebar-collapse" id="sidebar-collapse" title="Collapse sidebar">
+                    <i class="fas fa-angles-left"></i>
+                </button>
+                <button class="sidebar-toggle-mobile" id="sidebar-close" title="Close menu">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
         </div>
         <nav class="sidebar-nav">
             <a href="{{ url_for('index') }}" class="sidebar-link {% if request.endpoint == 'index' %}active{% endif %}">

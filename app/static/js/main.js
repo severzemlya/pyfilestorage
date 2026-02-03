@@ -515,7 +515,11 @@ window.confirmDelete = confirmDelete;
     const sidebar = document.getElementById('sidebar');
     const sidebarToggle = document.getElementById('sidebar-toggle');
     const sidebarClose = document.getElementById('sidebar-close');
+    const sidebarCollapse = document.getElementById('sidebar-collapse');
     const themeToggleMobile = document.getElementById('theme-toggle-mobile');
+    const root = document.documentElement;
+    const collapsedClass = 'sidebar-collapsed';
+    const collapseKey = 'sidebar_collapsed';
     
     // Create overlay element
     let overlay = document.querySelector('.sidebar-overlay');
@@ -540,13 +544,45 @@ window.confirmDelete = confirmDelete;
             document.body.style.overflow = '';
         }
     }
+
+    function updateCollapseIcon() {
+        if (!sidebarCollapse) return;
+        const icon = sidebarCollapse.querySelector('i');
+        const isCollapsed = root.classList.contains(collapsedClass);
+        if (icon) {
+            icon.className = isCollapsed ? 'fas fa-angles-right' : 'fas fa-angles-left';
+        }
+        sidebarCollapse.title = isCollapsed ? 'Expand sidebar' : 'Collapse sidebar';
+    }
+
+    function applyCollapseState() {
+        if (window.innerWidth <= 768) {
+            root.classList.remove(collapsedClass);
+            updateCollapseIcon();
+            return;
+        }
+
+        const stored = localStorage.getItem(collapseKey) === '1';
+        root.classList.toggle(collapsedClass, stored);
+        updateCollapseIcon();
+    }
     
     if (sidebarToggle) {
         sidebarToggle.addEventListener('click', openSidebar);
     }
-    
+
     if (sidebarClose) {
         sidebarClose.addEventListener('click', closeSidebar);
+    }
+
+    if (sidebarCollapse) {
+        sidebarCollapse.addEventListener('click', () => {
+            const isCollapsed = root.classList.contains(collapsedClass);
+            const next = !isCollapsed;
+            root.classList.toggle(collapsedClass, next);
+            localStorage.setItem(collapseKey, next ? '1' : '0');
+            updateCollapseIcon();
+        });
     }
     
     if (overlay) {
@@ -574,7 +610,10 @@ window.confirmDelete = confirmDelete;
         if (window.innerWidth > 768) {
             closeSidebar();
         }
+        applyCollapseState();
     });
+
+    applyCollapseState();
 })();
 
 console.log('PyFileStorage initialized');
