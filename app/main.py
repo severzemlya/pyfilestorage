@@ -32,7 +32,6 @@ from flask import (Flask, Response, abort, flash, g, jsonify, redirect,
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
-from werkzeug.utils import secure_filename
 
 # Load environment variables
 load_dotenv()
@@ -658,6 +657,20 @@ def is_safe_filename(filename):
     return ext not in BLOCKED_EXTENSIONS
 
 
+def sanitize_filename(filename):
+    """Sanitize filename while preserving Unicode characters."""
+    if not filename:
+        return ''
+    name = Path(filename).name
+    name = name.replace('\x00', '')
+    name = re.sub(r'[\x00-\x1f\x7f]', '', name)
+    name = re.sub(r'[<>:"/\\|?*]', '', name)
+    name = name.strip()
+    if not name:
+        return 'file'
+    return name[:255]
+
+
 def generate_stored_name(original_name):
     """Generate a random stored filename while preserving extension."""
     ext = Path(original_name).suffix.lower()
@@ -974,13 +987,14 @@ def load_file_bytes(file_row):
     return file_path.read_bytes()
 
 
-def stream_file_data(file_row):
+def stream_file_data(file_row, owner=None):
     """Generator that yields decrypted file data chunks for streaming responses."""
     file_path = UPLOAD_FOLDER / file_row['stored_name']
     is_encrypted = 'is_encrypted' in file_row.keys() and file_row['is_encrypted']
 
     if is_encrypted:
-        owner = get_user_identity(file_row['owner_id'])
+        if owner is None:
+            owner = get_user_identity(file_row['owner_id'])
         if not owner:
             raise ValueError('Owner not found for encrypted file')
         yield from decrypt_file_streaming(file_path, owner['id'], owner['email'])
@@ -1003,8 +1017,12 @@ def stream_file_response(file_row, as_attachment=False, download_name=None):
     original_name = download_name or file_row['original_name'] or 'file'
     original_size = file_row['size']
 
+    owner = None
+    if 'is_encrypted' in file_row.keys() and file_row['is_encrypted']:
+        owner = get_user_identity(file_row['owner_id'])
+
     def generate():
-        yield from stream_file_data(file_row)
+        yield from stream_file_data(file_row, owner)
 
     response = Response(generate(), mimetype=mime_type)
 
@@ -1587,7 +1605,7 @@ def upload_to_shared_folder(folder_id):
     uploaded = 0
     for file in files:
         if file.filename:
-            original_name = secure_filename(file.filename)
+            original_name = sanitize_filename(file.filename)
 
             # Check file extension
             if not is_safe_filename(original_name):
@@ -1764,7 +1782,7 @@ def upload_file():
     uploaded = 0
     for file in files:
         if file.filename:
-            original_name = secure_filename(file.filename)
+            original_name = sanitize_filename(file.filename)
 
             # Check file extension
             if not is_safe_filename(original_name):
@@ -1895,7 +1913,7 @@ def upload_file_ajax():
                 errors.append(f'Invalid path: {relative_path}')
                 continue
 
-            original_name = secure_filename(Path(relative_path).name)
+            original_name = sanitize_filename(Path(relative_path).name)
 
             # Determine target folder
             target_folder_id = get_or_create_folder(relative_path)
@@ -2038,6 +2056,8 @@ def download_folder(folder_id):
         for subfolder in subfolders:
             yield from collect_folder_entries(subfolder['id'], path + subfolder['name'] + '/')
 
+    owner = get_user_identity(user_id)
+
     def generate_zip_entries():
         """Generator that yields stream-zip member tuples for streaming ZIP creation."""
         # Collect all entries first (to avoid issues with db connection during streaming)
@@ -2046,8 +2066,8 @@ def download_folder(folder_id):
         for file_path, file_row in entries:
             try:
                 # Create a generator for the file data
-                def file_data_generator(fr=file_row):
-                    yield from stream_file_data(fr)
+                def file_data_generator(fr=file_row, owner_info=owner):
+                    yield from stream_file_data(fr, owner_info)
 
                 # Get modification time (or use current time)
                 try:
@@ -2269,7 +2289,7 @@ def rename_file(file_id):
     if new_ext.lower() != orig_ext.lower():
         name = name + orig_ext
 
-    name = secure_filename(name)
+    name = sanitize_filename(name)
 
     if not is_safe_filename(name):
         flash('Invalid file extension.', 'error')
@@ -2708,7 +2728,7 @@ def upload_to_shared_link(token):
     uploaded = 0
     for file in files:
         if file.filename:
-            original_name = secure_filename(file.filename)
+            original_name = sanitize_filename(file.filename)
 
             # Check file extension
             if not is_safe_filename(original_name):
@@ -3128,7 +3148,7 @@ def api_upload():
     if not file.filename:
         return jsonify({'error': 'No file selected'}), 400
 
-    original_name = secure_filename(file.filename)
+    original_name = sanitize_filename(file.filename)
 
     if not is_safe_filename(original_name):
         return jsonify({'error': 'File type not allowed'}), 400
