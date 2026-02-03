@@ -55,6 +55,10 @@ body {
     flex-direction: column;
 }
 
+html.i18n-pending [data-i18n] {
+    visibility: hidden;
+}
+
 a {
     color: var(--primary-color);
     text-decoration: none;

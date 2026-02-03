@@ -75,6 +75,8 @@ const i18n = {
                 el.title = translation;
             }
         });
+
+        document.documentElement.classList.remove('i18n-pending');
     },
     
     async setLanguage(lang) {
